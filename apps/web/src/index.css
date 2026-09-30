@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { min-height: 100%; }
+body { font-feature-settings: "ss01"; }
+
+input, select, textarea {
+  @apply w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-gold;
+}
+label { @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-stone-500; }
+button.btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-black;
+}
+button.btn-gold {
+  @apply inline-flex items-center justify-center gap-2 rounded-md bg-gold px-4 py-2 text-sm font-semibold text-ink hover:brightness-105;
+}
+button.btn-ghost {
+  @apply inline-flex items-center justify-center gap-2 rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium hover:bg-stone-50;
+}
+.card { @apply rounded-xl border border-stone-200 bg-white p-4 shadow-sm; }
+.table-wrap { @apply overflow-x-auto rounded-xl border border-stone-200 bg-white; }
+table.data { @apply w-full text-left text-sm; }
+table.data th { @apply bg-ink px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-white; }
+table.data td { @apply border-t border-stone-100 px-3 py-2.5 align-middle; }
+table.data tr:hover td { @apply bg-stone-50; }
+.badge { @apply inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide; }

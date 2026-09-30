@@ -1,0 +1,10 @@
+node_modules
+**/node_modules
+**/dist
+**/.env
+**/*.db
+**/*.db-journal
+apps/api/uploads
+.git
+.gitignore
+README.md

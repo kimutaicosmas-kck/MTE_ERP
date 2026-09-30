@@ -1,0 +1,19 @@
+{
+  "name": "mte-erp",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,worker,web -c cyan,green,magenta \"npm run dev -w api\" \"npm run worker -w api\" \"npm run dev -w web\"",
+    "dev:cluster": "concurrently -n cluster,worker,web -c cyan,green,magenta \"npm run cluster -w api\" \"npm run worker -w api\" \"npm run dev -w web\"",
+    "db:push": "npm run db:push -w api",
+    "db:seed": "npm run db:seed -w api",
+    "db:reset": "npm run db:reset -w api",
+    "docker": "docker compose up --build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

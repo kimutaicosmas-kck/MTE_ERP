@@ -1,0 +1,303 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String   @id @default(cuid())
+  name           String
+  email          String   @unique
+  passwordHash   String
+  role           String
+  phone          String?
+  monthlyTarget  Float    @default(0)
+  commissionRate Float    @default(0.03)
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  orders     Order[]
+  audits     AuditLog[]
+  requested  Approval[] @relation("RequestedBy")
+  reviewed   Approval[] @relation("ReviewedBy")
+  movements  StockMovement[]
+  payments   Payment[]
+  expenses   Expense[]
+  journals   Journal[]
+}
+
+model Customer {
+  id            String  @id @default(cuid())
+  name          String
+  phone         String?
+  email         String?
+  kraPin        String?
+  creditLimit   Float   @default(0)
+  paymentTerms  String  @default("COD")
+  notes         String?
+  orders        Order[]
+}
+
+model Vendor {
+  id       String  @id @default(cuid())
+  name     String
+  phone    String?
+  leadDays Int     @default(7)
+  oem      Boolean @default(false)
+  lines    OrderLine[]
+}
+
+model Part {
+  id            String   @id @default(cuid())
+  sku           String   @unique
+  oemNumber     String
+  name          String
+  category      String
+  binLocation   String
+  cost          Float
+  salePrice     Float
+  qtyOnHand     Float    @default(0)
+  reorderLevel  Float    @default(2)
+  critical      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  compat    PartCompat[]
+  movements StockMovement[]
+  lines     OrderLine[]
+}
+
+model PartCompat {
+  id           String @id @default(cuid())
+  partId       String
+  machineBrand String
+  machineModel String
+  part         Part   @relation(fields: [partId], references: [id], onDelete: Cascade)
+}
+
+model StockMovement {
+  id        String   @id @default(cuid())
+  partId    String
+  type      String
+  qty       Float
+  reference String?
+  reason    String?
+  userId    String?
+  createdAt DateTime @default(now())
+  part      Part     @relation(fields: [partId], references: [id])
+  user      User?    @relation(fields: [userId], references: [id])
+}
+
+model Order {
+  id             String   @id @default(cuid())
+  number         String   @unique
+  channel        String
+  status         String   @default("DRAFT")
+  customerId     String
+  salespersonId  String?
+  dispatchMethod String   @default("SHOP_COLLECT")
+  tracking       String?
+  notes          String?
+  vatRate        Float    @default(0.16)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  customer    Customer    @relation(fields: [customerId], references: [id])
+  salesperson User?       @relation(fields: [salespersonId], references: [id])
+  lines       OrderLine[]
+  payments    Payment[]
+  files       Attachment[]
+}
+
+model OrderLine {
+  id        String  @id @default(cuid())
+  orderId   String
+  partId    String
+  vendorId  String?
+  qty       Float
+  salePrice Float
+  cost      Float
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  part      Part    @relation(fields: [partId], references: [id])
+  vendor    Vendor? @relation(fields: [vendorId], references: [id])
+}
+
+model Payment {
+  id        String   @id @default(cuid())
+  orderId   String
+  method    String
+  amount    Float
+  reference String?
+  userId    String?
+  createdAt DateTime @default(now())
+  order     Order    @relation(fields: [orderId], references: [id])
+  user      User?    @relation(fields: [userId], references: [id])
+}
+
+model Expense {
+  id        String   @id @default(cuid())
+  category  String
+  amount    Float
+  vat       Float    @default(0)
+  date      DateTime
+  notes     String?
+  userId    String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+}
+
+model Approval {
+  id          String    @id @default(cuid())
+  type        String
+  entity      String
+  entityId    String
+  oldValue    String
+  newValue    String
+  reason      String
+  status      String    @default("PENDING")
+  requesterId String
+  reviewerId  String?
+  reviewedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  requester   User      @relation("RequestedBy", fields: [requesterId], references: [id])
+  reviewer    User?     @relation("ReviewedBy", fields: [reviewerId], references: [id])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  entity    String
+  entityId  String
+  action    String
+  oldValue  String?
+  newValue  String?
+  ip        String?
+  reason    String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+}
+
+model Account {
+  id     String @id @default(cuid())
+  code   String @unique
+  name   String
+  type   String
+  lines  JournalLine[]
+}
+
+model Journal {
+  id          String   @id @default(cuid())
+  date        DateTime @default(now())
+  memo        String
+  source      String
+  sourceId    String?
+  reversed    Boolean  @default(false)
+  userId      String?
+  createdAt   DateTime @default(now())
+  user        User?    @relation(fields: [userId], references: [id])
+  lines       JournalLine[]
+}
+
+model JournalLine {
+  id        String  @id @default(cuid())
+  journalId String
+  accountId String
+  debit     Float   @default(0)
+  credit    Float   @default(0)
+  journal   Journal @relation(fields: [journalId], references: [id], onDelete: Cascade)
+  account   Account @relation(fields: [accountId], references: [id])
+}
+
+model Period {
+  id     String  @id @default(cuid())
+  year   Int
+  month  Int
+  locked Boolean @default(false)
+  @@unique([year, month])
+}
+
+model Attachment {
+  id        String   @id @default(cuid())
+  orderId   String
+  name      String
+  mime      String
+  path      String
+  createdAt DateTime @default(now())
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model BankAccount {
+  id    String              @id @default(cuid())
+  code  String              @unique
+  name  String
+  lines BankStatementLine[]
+}
+
+model BankStatementLine {
+  id            String      @id @default(cuid())
+  bankAccountId String
+  date          DateTime
+  description   String
+  amount        Float
+  matched       Boolean     @default(false)
+  paymentId     String?
+  createdAt     DateTime    @default(now())
+  bank          BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+}
+
+model WebhookEndpoint {
+  id         String            @id @default(cuid())
+  name       String
+  url        String
+  secret     String
+  events     String
+  active     Boolean           @default(true)
+  createdAt  DateTime          @default(now())
+  deliveries WebhookDelivery[]
+}
+
+model WebhookDelivery {
+  id           String           @id @default(cuid())
+  endpointId   String
+  event        String
+  payload      String
+  status       String           @default("QUEUED")
+  attempts     Int              @default(0)
+  lastError    String?
+  responseCode Int?
+  createdAt    DateTime         @default(now())
+  sentAt       DateTime?
+  endpoint     WebhookEndpoint  @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+}
+
+model Job {
+  id          String   @id @default(cuid())
+  type        String
+  payload     String
+  status      String   @default("PENDING")
+  attempts    Int      @default(0)
+  maxAttempts Int      @default(8)
+  runAt       DateTime @default(now())
+  lockedBy    String?
+  lastError   String?
+  createdAt   DateTime @default(now())
+}
+
+model WebhookInbox {
+  id        String   @id @default(cuid())
+  source    String
+  headers   String?
+  payload   String
+  createdAt DateTime @default(now())
+}
+
+model WorkerHeartbeat {
+  id       String   @id @default(cuid())
+  workerId String   @unique
+  kind     String
+  pid      Int
+  seenAt   DateTime @default(now())
+  meta     String?
+}
