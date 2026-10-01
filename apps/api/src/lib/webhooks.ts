@@ -1,6 +1,7 @@
 import { createHmac, randomBytes } from "crypto";
 import { prisma } from "./prisma.js";
 import { enqueue } from "./queue.js";
+import { notifyEvent } from "./push.js";
 
 export const WEBHOOK_EVENTS = [
   "order.created",
@@ -13,6 +14,7 @@ export const WEBHOOK_EVENTS = [
 ] as const;
 
 export async function emit(event: string, data: unknown) {
+  notifyEvent(event, data).catch(() => undefined);
   const endpoints = await prisma.webhookEndpoint.findMany({ where: { active: true } });
   const matches = endpoints.filter((e) => {
     const list = e.events.split(",").map((x) => x.trim());

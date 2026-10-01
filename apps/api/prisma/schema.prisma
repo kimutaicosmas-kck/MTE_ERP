@@ -13,12 +13,21 @@ model User {
   email          String   @unique
   passwordHash   String
   role           String
+  department     String   @default("Operations")
+  modules        String   @default("[]")
   phone          String?
   monthlyTarget  Float    @default(0)
   commissionRate Float    @default(0.03)
   active         Boolean  @default(true)
   createdAt      DateTime @default(now())
+  salary         Float    @default(0)
+  branchId       String?
+  jobTitle       String?
+  nationalId     String?
+  hireDate       DateTime?
+  avatarUrl      String?
 
+  branch     Branch?         @relation(fields: [branchId], references: [id])
   orders     Order[]
   audits     AuditLog[]
   requested  Approval[] @relation("RequestedBy")
@@ -27,6 +36,32 @@ model User {
   payments   Payment[]
   expenses   Expense[]
   journals   Journal[]
+  purchases  PurchaseOrder[] @relation("PurchasedBy")
+  receipts   GoodsReceipt[]
+  vendorPays VendorPayment[]
+  payrolls   PayrollLine[]
+  returns    SalesReturn[]
+  invoices   Invoice[]
+  pushSubs   PushSub[]
+  captures   Capture[]
+  notices    Notice[]
+  leaves     LeaveRequest[] @relation("LeaveEmployee")
+  reviewedLeaves LeaveRequest[] @relation("LeaveReviewer")
+  advances   SalaryAdvance[] @relation("AdvanceEmployee")
+  mpesaTxns  MpesaTxn[]
+  reviewedAdvances SalaryAdvance[] @relation("AdvanceReviewer")
+  attendance Attendance[]
+}
+
+model Notice {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  body      String
+  url       String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Customer {
@@ -39,6 +74,8 @@ model Customer {
   paymentTerms  String  @default("COD")
   notes         String?
   orders        Order[]
+  returns       SalesReturn[]
+  invoices      Invoice[]
 }
 
 model Vendor {
@@ -46,8 +83,10 @@ model Vendor {
   name     String
   phone    String?
   leadDays Int     @default(7)
-  oem      Boolean @default(false)
-  lines    OrderLine[]
+  oem       Boolean @default(false)
+  lines     OrderLine[]
+  purchases PurchaseOrder[]
+  bills     VendorBill[]
 }
 
 model Part {
@@ -62,11 +101,15 @@ model Part {
   qtyOnHand     Float    @default(0)
   reorderLevel  Float    @default(2)
   critical      Boolean  @default(false)
+  trackSerial   Boolean  @default(false)
   createdAt     DateTime @default(now())
 
-  compat    PartCompat[]
-  movements StockMovement[]
-  lines     OrderLine[]
+  compat        PartCompat[]
+  movements     StockMovement[]
+  lines         OrderLine[]
+  purchaseLines PurchaseLine[]
+  serials       Serial[]
+  returnLines   SalesReturnLine[]
 }
 
 model PartCompat {
@@ -99,16 +142,23 @@ model Order {
   salespersonId  String?
   dispatchMethod String   @default("SHOP_COLLECT")
   tracking       String?
+  lpo            String?
   notes          String?
   vatRate        Float    @default(0.16)
+  invoiceNumber  String?  @unique
+  currency       String   @default("KES")
+  branchId       String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  customer    Customer    @relation(fields: [customerId], references: [id])
-  salesperson User?       @relation(fields: [salespersonId], references: [id])
+  customer    Customer     @relation(fields: [customerId], references: [id])
+  salesperson User?        @relation(fields: [salespersonId], references: [id])
+  branch      Branch?      @relation(fields: [branchId], references: [id])
   lines       OrderLine[]
   payments    Payment[]
   files       Attachment[]
+  returns     SalesReturn[]
+  invoice     Invoice?
 }
 
 model OrderLine {
@@ -122,6 +172,24 @@ model OrderLine {
   order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   part      Part    @relation(fields: [partId], references: [id])
   vendor    Vendor? @relation(fields: [vendorId], references: [id])
+}
+
+model Invoice {
+  id            String   @id @default(cuid())
+  number        String   @unique
+  orderId       String   @unique
+  customerId    String
+  salespersonId String?
+  lpo           String?
+  vatRate       Float    @default(0.16)
+  status        String   @default("UNPAID")
+  issuedAt      DateTime @default(now())
+  dueAt         DateTime?
+  createdAt     DateTime @default(now())
+
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customer    Customer  @relation(fields: [customerId], references: [id])
+  salesperson User?     @relation(fields: [salespersonId], references: [id])
 }
 
 model Payment {
@@ -153,8 +221,8 @@ model Approval {
   type        String
   entity      String
   entityId    String
-  oldValue    String
-  newValue    String
+  oldValue    String  @db.Text
+  newValue    String  @db.Text
   reason      String
   status      String    @default("PENDING")
   requesterId String
@@ -171,8 +239,8 @@ model AuditLog {
   entity    String
   entityId  String
   action    String
-  oldValue  String?
-  newValue  String?
+  oldValue  String?  @db.Text
+  newValue  String?  @db.Text
   ip        String?
   reason    String?
   createdAt DateTime @default(now())
@@ -291,6 +359,304 @@ model WebhookInbox {
   headers   String?
   payload   String
   createdAt DateTime @default(now())
+}
+
+model PurchaseOrder {
+  id          String   @id @default(cuid())
+  number      String   @unique
+  vendorId    String
+  status      String   @default("DRAFT")
+  reference   String?
+  notes       String?
+  vatRate     Float    @default(0.16)
+  currency    String   @default("KES")
+  fxRate      Float    @default(1)
+  freight     Float    @default(0)
+  duty        Float    @default(0)
+  otherLanded Float    @default(0)
+  expectedAt  DateTime?
+  createdById String?
+  branchId    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  vendor    Vendor           @relation(fields: [vendorId], references: [id])
+  createdBy User?            @relation("PurchasedBy", fields: [createdById], references: [id])
+  branch    Branch?          @relation(fields: [branchId], references: [id])
+  lines     PurchaseLine[]
+  receipts  GoodsReceipt[]
+  bills     VendorBill[]
+}
+
+model PurchaseLine {
+  id          String  @id @default(cuid())
+  purchaseId  String
+  partId      String
+  qtyOrdered  Float
+  qtyReceived Float   @default(0)
+  unitCost    Float
+  purchase    PurchaseOrder @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  part        Part          @relation(fields: [partId], references: [id])
+}
+
+model GoodsReceipt {
+  id           String   @id @default(cuid())
+  number       String   @unique
+  purchaseId   String
+  receivedById String?
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  purchase   PurchaseOrder      @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  receivedBy User?              @relation(fields: [receivedById], references: [id])
+  lines      GoodsReceiptLine[]
+  bill       VendorBill?
+}
+
+model GoodsReceiptLine {
+  id         String  @id @default(cuid())
+  receiptId  String
+  partId     String
+  qty        Float
+  receipt    GoodsReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+}
+
+model Setting {
+  id             String  @id @default("default")
+  companyName    String  @default("MTE ERP")
+  legalName      String  @default("MTE Earth Moving Parts")
+  address        String  @default("Nairobi, Kenya")
+  phone          String?
+  email          String?
+  kraPin         String?
+  vatRate        Float   @default(0.16)
+  currency       String  @default("KES")
+  invoicePrefix  String  @default("")
+  mpesaPaybill   String?
+  mpesaAccount   String?
+  darajaEnv                String  @default("sandbox")
+  darajaConsumerKey        String?
+  darajaConsumerSecret     String? @db.Text
+  darajaPasskey            String? @db.Text
+  darajaShortcode          String?
+  darajaType               String  @default("PAYBILL")
+  darajaCallbackUrl        String?
+  darajaInitiator          String?
+  darajaSecurityCredential String? @db.Text
+  darajaPartyB             String?
+  defaultBranchId String?
+  vapidPublic    String? @db.Text
+  vapidPrivate   String? @db.Text
+}
+
+model MpesaTxn {
+  id              String   @id @default(cuid())
+  kind            String
+  status          String   @default("PENDING")
+  phone           String?
+  amount          Float    @default(0)
+  invoiceId       String?
+  orderId         String?
+  paymentId       String?
+  accountRef      String?
+  description     String?
+  merchantRequest String?
+  checkoutRequest String?
+  conversationId  String?
+  originatorConv  String?
+  receipt         String?
+  resultCode      String?
+  resultDesc      String?
+  rawRequest      String?  @db.Text
+  rawCallback     String?  @db.Text
+  userId          String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([receipt])
+  @@index([accountRef])
+  @@index([checkoutRequest])
+  @@index([status])
+}
+
+model PushSub {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Capture {
+  id        String   @id @default(cuid())
+  kind      String
+  refId     String
+  name      String
+  mime      String
+  data      String   @db.LongText
+  userId    String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+}
+
+model Branch {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  address   String?
+  active    Boolean  @default(true)
+  users     User[]
+  orders    Order[]
+  purchases PurchaseOrder[]
+}
+
+model Sequence {
+  id   String @id
+  next Int    @default(1)
+}
+
+model VendorBill {
+  id         String   @id @default(cuid())
+  number     String   @unique
+  vendorId   String
+  purchaseId String?
+  receiptId  String?  @unique
+  status     String   @default("OPEN")
+  currency   String   @default("KES")
+  fxRate     Float    @default(1)
+  net        Float
+  vat        Float    @default(0)
+  landed     Float    @default(0)
+  gross      Float
+  paid       Float    @default(0)
+  notes      String?
+  createdAt  DateTime @default(now())
+
+  vendor   Vendor         @relation(fields: [vendorId], references: [id])
+  purchase PurchaseOrder? @relation(fields: [purchaseId], references: [id])
+  receipt  GoodsReceipt?  @relation(fields: [receiptId], references: [id])
+  payments VendorPayment[]
+}
+
+model VendorPayment {
+  id        String   @id @default(cuid())
+  billId    String
+  method    String
+  amount    Float
+  reference String?
+  userId    String?
+  createdAt DateTime @default(now())
+  bill      VendorBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+  user      User?      @relation(fields: [userId], references: [id])
+}
+
+model SalesReturn {
+  id          String   @id @default(cuid())
+  number      String   @unique
+  orderId     String
+  customerId  String
+  reason      String
+  status      String   @default("POSTED")
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  order     Order             @relation(fields: [orderId], references: [id])
+  customer  Customer          @relation(fields: [customerId], references: [id])
+  createdBy User?             @relation(fields: [createdById], references: [id])
+  lines     SalesReturnLine[]
+}
+
+model SalesReturnLine {
+  id       String @id @default(cuid())
+  returnId String
+  partId   String
+  qty      Float
+  salePrice Float
+  cost     Float
+  ret      SalesReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  part     Part        @relation(fields: [partId], references: [id])
+}
+
+model LeaveRequest {
+  id         String   @id @default(cuid())
+  userId     String
+  type       String
+  startDate  DateTime
+  endDate    DateTime
+  days       Float
+  reason     String?
+  status     String   @default("PENDING")
+  reviewerId String?
+  createdAt  DateTime @default(now())
+  user       User     @relation("LeaveEmployee", fields: [userId], references: [id], onDelete: Cascade)
+  reviewer   User?    @relation("LeaveReviewer", fields: [reviewerId], references: [id])
+}
+
+model SalaryAdvance {
+  id         String   @id @default(cuid())
+  userId     String
+  amount     Float
+  reason     String?
+  year       Int
+  month      Int
+  status     String   @default("PENDING")
+  reviewerId String?
+  createdAt  DateTime @default(now())
+  user       User     @relation("AdvanceEmployee", fields: [userId], references: [id], onDelete: Cascade)
+  reviewer   User?    @relation("AdvanceReviewer", fields: [reviewerId], references: [id])
+}
+
+model Attendance {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime
+  checkIn   DateTime?
+  checkOut  DateTime?
+  status    String   @default("PRESENT")
+  notes     String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+}
+
+model PayrollRun {
+  id        String   @id @default(cuid())
+  number    String   @unique
+  year      Int
+  month     Int
+  status    String   @default("DRAFT")
+  notes     String?
+  createdAt DateTime @default(now())
+  lines     PayrollLine[]
+}
+
+model PayrollLine {
+  id          String  @id @default(cuid())
+  runId       String
+  userId      String
+  basic       Float
+  allowances  Float   @default(0)
+  deductions  Float   @default(0)
+  paye        Float   @default(0)
+  net         Float
+  run         PayrollRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  user        User       @relation(fields: [userId], references: [id])
+}
+
+model Serial {
+  id         String  @id @default(cuid())
+  partId     String
+  code       String
+  status     String  @default("IN_STOCK")
+  purchaseId String?
+  orderId    String?
+  part       Part    @relation(fields: [partId], references: [id], onDelete: Cascade)
+  @@unique([partId, code])
 }
 
 model WorkerHeartbeat {

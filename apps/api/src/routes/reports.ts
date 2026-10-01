@@ -1,9 +1,10 @@
 import { Router } from "express";
 import { prisma } from "../lib/prisma.js";
+import { moduleAccess } from "../middleware/auth.js";
 
 export const reportsRouter = Router();
 
-reportsRouter.get("/inventory", async (_req, res) => {
+reportsRouter.get("/inventory", moduleAccess("reports"), async (_req, res) => {
   const parts = await prisma.part.findMany({ include: { movements: true, lines: true } });
   const now = Date.now();
   const rows = parts.map((p) => {
@@ -35,9 +36,12 @@ reportsRouter.get("/inventory", async (_req, res) => {
   });
 });
 
-reportsRouter.get("/sales", async (_req, res) => {
+reportsRouter.get("/sales", moduleAccess("reports"), async (req, res) => {
   const users = await prisma.user.findMany({
-    where: { role: { in: ["SALES", "ADMIN", "SUPER_ADMIN"] } },
+    where: {
+      role: { in: ["SALES", "ADMIN", "SUPER_ADMIN"] },
+      ...(req.user!.role === "SALES" ? { id: req.user!.id } : {}),
+    },
     include: {
       orders: { include: { lines: true, payments: true } },
     },
@@ -67,24 +71,80 @@ reportsRouter.get("/sales", async (_req, res) => {
   res.json(rows.sort((a, b) => b.revenue - a.revenue));
 });
 
-reportsRouter.get("/customers", async (_req, res) => {
+reportsRouter.get("/customers", moduleAccess("reports", "customers"), async (req, res) => {
   const customers = await prisma.customer.findMany({
     include: { orders: { include: { lines: true, payments: true } } },
   });
+  const mine = req.user!.role === "SALES";
   res.json(
     customers
       .map((c) => {
-        const live = c.orders.filter((o) => o.status !== "CANCELLED");
+        const live = c.orders.filter((o) => o.status !== "CANCELLED" && (!mine || o.salespersonId === req.user!.id));
         const revenue = live.reduce((s, o) => s + o.lines.reduce((n, l) => n + l.qty * l.salePrice, 0), 0);
         const paid = live.reduce((s, o) => s + o.payments.reduce((n, p) => n + p.amount, 0), 0);
         return { id: c.id, name: c.name, phone: c.phone, orders: live.length, revenue, paid, outstanding: Math.max(0, revenue * 1.16 - paid) };
       })
+      .filter((c) => !mine || c.orders > 0)
       .sort((a, b) => b.revenue - a.revenue)
   );
 });
 
-reportsRouter.get("/audit", async (req, res) => {
-  if (req.user!.role === "SALES") return res.status(403).json({ error: "Not allowed" });
+reportsRouter.get("/customer-balances", moduleAccess("reports", "customers"), async (req, res) => {
+  const asOfRaw = String(req.query.asOf || new Date().toISOString().slice(0, 10));
+  const asOf = new Date(`${asOfRaw}T23:59:59.999`);
+  if (Number.isNaN(+asOf)) return res.status(400).json({ error: "Invalid as-of date" });
+
+  const salespeople = await prisma.user.findMany({
+    where: { role: { in: ["SALES", "ADMIN", "SUPER_ADMIN"] }, active: true },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+
+  let salespersonId = req.query.salespersonId ? String(req.query.salespersonId) : "";
+  if (req.user!.role === "SALES") salespersonId = req.user!.id;
+
+  const invoices = await prisma.invoice.findMany({
+    where: {
+      issuedAt: { lte: asOf },
+      ...(salespersonId ? { salespersonId } : {}),
+    },
+    include: {
+      customer: true,
+      order: { include: { lines: true, payments: true } },
+    },
+  });
+
+  const map = new Map<string, { id: string; name: string; invoiced: number; paid: number; credit: number; balance: number }>();
+  for (const inv of invoices) {
+    const net = inv.order.lines.reduce((s, l) => s + l.qty * l.salePrice, 0);
+    const gross = Math.round((net + net * inv.vatRate) * 100) / 100;
+    const paidRows = inv.order.payments.filter((p) => p.createdAt <= asOf);
+    const paid = paidRows.reduce((s, p) => s + p.amount, 0);
+    const credit = paidRows.filter((p) => p.method === "CREDIT_NOTE").reduce((s, p) => s + p.amount, 0);
+    const balance = Math.round((gross - paid) * 100) / 100;
+    const cur = map.get(inv.customerId) || { id: inv.customerId, name: inv.customer.name, invoiced: 0, paid: 0, credit: 0, balance: 0 };
+    cur.invoiced += gross;
+    cur.paid += paid;
+    cur.credit += credit;
+    cur.balance += balance;
+    map.set(inv.customerId, cur);
+  }
+
+  const rows = [...map.values()]
+    .map((r) => ({ ...r, balance: Math.round(r.balance * 100) / 100 }))
+    .filter((r) => Math.abs(r.balance) > 0.01)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  res.json({
+    asOf: asOfRaw,
+    salespersonId: salespersonId || null,
+    salespeople: req.user!.role === "SALES" ? salespeople.filter((s) => s.id === req.user!.id) : salespeople,
+    total: Math.round(rows.reduce((s, r) => s + r.balance, 0) * 100) / 100,
+    rows,
+  });
+});
+
+reportsRouter.get("/audit", moduleAccess("audit"), async (_req, res) => {
   res.json(
     await prisma.auditLog.findMany({
       include: { user: { select: { name: true, role: true } } },

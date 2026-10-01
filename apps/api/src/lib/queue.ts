@@ -1,6 +1,10 @@
 import { prisma } from "./prisma.js";
+import { claimRedisJob, enqueueRedis, failRedisJob, redisReady } from "./redis.js";
 
 export async function enqueue(type: string, payload: unknown, delayMs = 0) {
+  if (await enqueueRedis(type, payload, delayMs)) {
+    return { id: "redis", type };
+  }
   return prisma.job.create({
     data: {
       type,
@@ -11,6 +15,19 @@ export async function enqueue(type: string, payload: unknown, delayMs = 0) {
 }
 
 export async function claimJob(workerId: string) {
+  if (redisReady()) {
+    const redisJob = await claimRedisJob();
+    if (redisJob) {
+      return {
+        id: redisJob.id,
+        type: redisJob.type,
+        payload: JSON.stringify(redisJob.payload ?? {}),
+        attempts: redisJob.attempts,
+        maxAttempts: 5,
+        source: "redis" as const,
+      };
+    }
+  }
   const job = await prisma.job.findFirst({
     where: { status: "PENDING", runAt: { lte: new Date() } },
     orderBy: { createdAt: "asc" },
@@ -24,7 +41,18 @@ export async function claimJob(workerId: string) {
   return prisma.job.findUnique({ where: { id: job.id } });
 }
 
-export async function finishJob(id: string, ok: boolean, error?: string) {
+export async function finishJob(id: string, ok: boolean, error?: string, meta?: { type?: string; payload?: unknown; attempts?: number; source?: string }) {
+  if (meta?.source === "redis") {
+    if (!ok) {
+      await failRedisJob({
+        id,
+        type: meta.type || "unknown",
+        payload: meta.payload,
+        attempts: meta.attempts || 0,
+      }, error || "Job failed");
+    }
+    return;
+  }
   const job = await prisma.job.findUnique({ where: { id } });
   if (!job) return;
   if (ok) {

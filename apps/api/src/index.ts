@@ -1,10 +1,12 @@
 import { createApp } from "./app.js";
 import { beat } from "./lib/heartbeat.js";
+import { connectRedis } from "./lib/redis.js";
 import { ensureDefaultEndpoint } from "./lib/webhooks.js";
 
 const port = Number(process.env.PORT || 4000);
 
 async function start() {
+  await connectRedis();
   await ensureDefaultEndpoint();
   const app = createApp();
   app.listen(port, "0.0.0.0", () => {

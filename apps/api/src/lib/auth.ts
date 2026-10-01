@@ -8,6 +8,7 @@ export type TokenUser = {
   email: string;
   name: string;
   role: string;
+  sid?: string;
 };
 
 export function signToken(user: TokenUser) {

@@ -18,13 +18,25 @@ services:
       retries: 30
       start_period: 20s
 
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   api:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
     environment:
-      DATABASE_URL: mysql://mte:mtepass@mysql:3306/mte_erp
+      DATABASE_URL: mysql://mte:mtepass@mysql:3306/mte_erp?connection_limit=25
       JWT_SECRET: mte-erp-change-in-production
+      REDIS_URL: redis://redis:6379
       PORT: "4000"
     ports:
       - "4000:4000"
@@ -32,6 +44,8 @@ services:
       - uploads:/app/apps/api/uploads
     depends_on:
       mysql:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test:
@@ -52,13 +66,16 @@ services:
       dockerfile: apps/api/Dockerfile
     command: ["npx", "tsx", "src/worker.ts"]
     environment:
-      DATABASE_URL: mysql://mte:mtepass@mysql:3306/mte_erp
+      DATABASE_URL: mysql://mte:mtepass@mysql:3306/mte_erp?connection_limit=10
       JWT_SECRET: mte-erp-change-in-production
+      REDIS_URL: redis://redis:6379
       SKIP_DB_SETUP: "1"
     volumes:
       - uploads:/app/apps/api/uploads
     depends_on:
       mysql:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       api:
         condition: service_healthy
@@ -75,4 +92,5 @@ services:
 
 volumes:
   mysql_data:
+  redis_data:
   uploads:

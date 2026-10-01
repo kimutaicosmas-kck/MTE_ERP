@@ -1,7 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Stat, StatGrid } from "../components/ui";
 import { api, money } from "../lib/api";
+import { canModule } from "../lib/access";
+import { useAuth } from "../lib/auth";
 
 type Dash = {
   tiles: Record<string, number>;
@@ -9,7 +12,22 @@ type Dash = {
   recent: { id: string; number: string; status: string; channel: string; customer: { name: string } }[];
 };
 
+const TONE: Record<string, string> = {
+  DRAFT: "bg-stone-100 text-stone-700",
+  CONFIRMED: "bg-sky-100 text-sky-800",
+  PICKING: "bg-amber-100 text-amber-800",
+  PICKED: "bg-amber-100 text-amber-900",
+  DISPATCHED: "bg-blue-100 text-blue-800",
+  DELIVERED: "bg-emerald-100 text-emerald-800",
+  PAID: "bg-emerald-100 text-emerald-900",
+};
+
 export function Dashboard() {
+  const { user } = useAuth();
+  const sales = user?.role === "SALES";
+  const books = canModule(user, "finance") ? "/finance" : canModule(user, "sales") ? "/sales" : "/";
+  const salesHome = canModule(user, "sales") ? "/sales" : canModule(user, "dispatch") ? "/dispatch" : "/";
+  const dispatchTo = canModule(user, "dispatch") ? "/dispatch" : salesHome;
   const { data } = useQuery({
     queryKey: ["dashboard"],
     queryFn: () => api<Dash>("/api/dashboard"),
@@ -17,29 +35,28 @@ export function Dashboard() {
   });
   const t = data?.tiles;
   const cards = [
-    ["Orders today", t?.ordersToday, "/orders"],
-    ["Revenue today", money(t?.revenue), "/finance"],
-    ["Profit today", money(t?.profit), "/finance"],
-    ["Collected today", money(t?.paidToday), "/orders"],
-    ["Pending approvals", t?.pendingApprovals, "/approvals"],
-    ["Dispatch queue", t?.dispatchQueue, "/orders"],
-    ["Low stock", t?.lowStock, "/inventory"],
-    ["Dead stock", t?.deadStock, "/inventory"],
+    ["Today's sales", money(t?.revenue), salesHome],
+    ["Collected today", money(t?.paidToday), salesHome],
+    ["Successful orders", t?.ordersToday ?? "—", salesHome],
+    ["All time queue", t?.dispatchQueue ?? "—", dispatchTo],
   ] as const;
 
   return (
-    <div className="space-y-6">
-      <header>
-        <p className="text-xs uppercase tracking-[0.2em] text-gold">Live</p>
-        <h1 className="font-serif text-4xl">Today</h1>
-      </header>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="space-y-5">
+      <StatGrid>
         {cards.map(([label, value, href]) => (
-          <Link key={label} to={href} className="card border-t-4 border-t-gold hover:shadow-md">
-            <div className="text-xs uppercase tracking-wide text-stone-500">{label}</div>
-            <div className="mt-2 font-serif text-3xl">{value ?? "—"}</div>
+          <Link key={label} to={href} className="block">
+            <Stat label={label} value={value} />
           </Link>
         ))}
+      </StatGrid>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {canModule(user, "approvals") && <Link to="/approvals"><Stat label="Pending approvals" value={t?.pendingApprovals ?? "—"} /></Link>}
+        <Link to={books}><Stat label="Profit today" value={money(t?.profit)} /></Link>
+        {canModule(user, "inventory") && <Link to="/inventory"><Stat label="Low stock" value={t?.lowStock ?? "—"} /></Link>}
+        {canModule(user, "procurement") && (
+          <Link to="/procurement"><Stat label="Open purchase orders" value={t?.inboundPOs ?? "—"} /></Link>
+        )}
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="card lg:col-span-2">
@@ -56,13 +73,13 @@ export function Dashboard() {
           </div>
         </div>
         <div className="card">
-          <h2 className="mb-3 font-semibold">Latest orders</h2>
+          <h2 className="mb-3 font-semibold">{sales ? "Your latest orders" : "Latest orders"}</h2>
           <div className="space-y-3 text-sm">
             {data?.recent.map((o) => (
-              <Link key={o.id} to={`/orders/${o.id}`} className="block rounded-lg border border-stone-100 p-3 hover:bg-stone-50">
+              <Link key={o.id} to={canModule(user, "sales") ? `/sales/${o.id}` : "/dispatch"} className="block rounded-lg border border-stone-100 p-3 hover:bg-stone-50 dark:border-white/10 dark:hover:bg-white/5">
                 <div className="flex justify-between font-medium">
                   <span>{o.number}</span>
-                  <span className="badge bg-stone-100">{o.status}</span>
+                  <span className={`badge ${TONE[o.status] || "bg-stone-100"}`}>{o.status}</span>
                 </div>
                 <div className="mt-1 text-stone-500">{o.customer.name} · {o.channel}</div>
               </Link>

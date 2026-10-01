@@ -1,22 +1,25 @@
 import { Router } from "express";
 import { prisma } from "../lib/prisma.js";
+import { ownOrderWhere } from "../lib/roles.js";
 
 export const dashboardRouter = Router();
 
-dashboardRouter.get("/", async (_req, res) => {
+dashboardRouter.get("/", async (req, res) => {
   const start = new Date();
   start.setHours(0, 0, 0, 0);
 
-  const [orders, parts, approvals, payments, recent] = await Promise.all([
+  const [orders, parts, approvals, payments, recent, inbound] = await Promise.all([
     prisma.order.findMany({ include: { lines: true, payments: true, salesperson: true } }),
     prisma.part.findMany({ include: { movements: true } }),
     prisma.approval.count({ where: { status: "PENDING" } }),
     prisma.payment.findMany({ where: { createdAt: { gte: start } } }),
     prisma.order.findMany({
+      where: ownOrderWhere(req.user!),
       take: 8,
       orderBy: { createdAt: "desc" },
       include: { customer: true, salesperson: true },
     }),
+    prisma.purchaseOrder.count({ where: { status: { in: ["DRAFT", "ORDERED", "PARTIAL"] } } }),
   ]);
 
   const today = orders.filter((o) => o.createdAt >= start && o.status !== "CANCELLED");
@@ -43,6 +46,7 @@ dashboardRouter.get("/", async (_req, res) => {
   });
 
   res.json({
+    companyWide: true,
     tiles: {
       ordersToday: today.length,
       revenue,
@@ -52,6 +56,7 @@ dashboardRouter.get("/", async (_req, res) => {
       dispatchQueue: dispatch,
       lowStock: low,
       deadStock: dead,
+      inboundPOs: inbound,
     },
     trend: days,
     recent,

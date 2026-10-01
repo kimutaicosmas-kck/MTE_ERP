@@ -2,6 +2,7 @@ import cluster from "node:cluster";
 import os from "node:os";
 import { createApp } from "./app.js";
 import { beat } from "./lib/heartbeat.js";
+import { connectRedis } from "./lib/redis.js";
 import { ensureDefaultEndpoint } from "./lib/webhooks.js";
 
 const count = Math.max(1, Number(process.env.CLUSTER_WORKERS || os.cpus().length));
@@ -15,7 +16,8 @@ if (cluster.isPrimary) {
     cluster.fork();
   });
 } else {
-  ensureDefaultEndpoint()
+  connectRedis()
+    .then(() => ensureDefaultEndpoint())
     .then(() => {
       const app = createApp();
       app.listen(port, () => {

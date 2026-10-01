@@ -2,6 +2,7 @@ import { claimJob, finishJob, enqueue } from "./lib/queue.js";
 import { deliverOnce } from "./lib/webhooks.js";
 import { beat, workerId } from "./lib/heartbeat.js";
 import { prisma } from "./lib/prisma.js";
+import { connectRedis } from "./lib/redis.js";
 import { emit } from "./lib/webhooks.js";
 
 const id = workerId("worker");
@@ -27,6 +28,7 @@ async function handle(type: string, payload: Record<string, unknown>) {
 }
 
 export async function runWorkerLoop() {
+  await connectRedis();
   console.log(`MTE ERP worker ${id}`);
   await beat("worker", { role: "queue" });
   setInterval(() => beat("worker", { role: "queue" }), 10_000);
@@ -40,9 +42,9 @@ export async function runWorkerLoop() {
     }
     try {
       await handle(job.type, JSON.parse(job.payload) as Record<string, unknown>);
-      await finishJob(job.id, true);
+      await finishJob(job.id, true, undefined, job);
     } catch (err) {
-      await finishJob(job.id, false, err instanceof Error ? err.message : "Job failed");
+      await finishJob(job.id, false, err instanceof Error ? err.message : "Job failed", job);
     }
   }
 }

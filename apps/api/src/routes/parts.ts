@@ -5,10 +5,12 @@ import { audit } from "../lib/audit.js";
 import { canBypassApproval } from "../lib/auth.js";
 import { postStockReceipt } from "../lib/ledger.js";
 import { emit } from "../lib/webhooks.js";
+import { moduleAccess } from "../middleware/auth.js";
 
 export const partsRouter = Router();
+partsRouter.use(moduleAccess("inventory", "sales", "procurement", "dispatch", "finance"));
 
-partsRouter.get("/", async (_req, res) => {
+partsRouter.get("/", async (req, res) => {
   const parts = await prisma.part.findMany({
     include: { compat: true },
     orderBy: { sku: "asc" },
@@ -25,7 +27,11 @@ partsRouter.get("/", async (_req, res) => {
       return { ...p, daysIdle: days, lowStock: p.qtyOnHand <= p.reorderLevel };
     })
   );
-  res.json(withAge);
+  res.json(
+    req.user!.role === "SALES"
+      ? withAge.map((p) => ({ ...p, cost: undefined }))
+      : withAge
+  );
 });
 
 partsRouter.get("/:id", async (req, res) => {
@@ -33,8 +39,8 @@ partsRouter.get("/:id", async (req, res) => {
     where: { id: req.params.id },
     include: { compat: true, movements: { orderBy: { createdAt: "desc" }, take: 40 } },
   });
-  if (!part) return res.status(404).json({ error: "Part not found" });
-  res.json(part);
+  if (!part) return res.status(404).json({ error: "Product not found" });
+  res.json(req.user!.role === "SALES" ? { ...part, cost: undefined } : part);
 });
 
 const partBody = z.object({
@@ -48,17 +54,18 @@ const partBody = z.object({
   qtyOnHand: z.number().optional(),
   reorderLevel: z.number().optional(),
   critical: z.boolean().optional(),
+  trackSerial: z.boolean().optional(),
   compat: z.array(z.object({ machineBrand: z.string(), machineModel: z.string() })).optional(),
 });
 
 partsRouter.post("/", async (req, res) => {
-  if (req.user!.role === "SALES") return res.status(403).json({ error: "Sales cannot create parts" });
+  if (req.user!.role === "SALES") return res.status(403).json({ error: "Sales cannot create products" });
   const body = partBody.safeParse(req.body);
   if (!body.success) return res.status(400).json({ error: body.error.flatten() });
   const part = await prisma.part.create({
     data: {
       ...body.data,
-      qtyOnHand: body.data.qtyOnHand ?? 0,
+      qtyOnHand: 0,
       reorderLevel: body.data.reorderLevel ?? 2,
       compat: { create: body.data.compat || [] },
     },
@@ -69,6 +76,7 @@ partsRouter.post("/", async (req, res) => {
 });
 
 partsRouter.patch("/:id", async (req, res) => {
+  if (req.user!.role === "SALES") return res.status(403).json({ error: "Sales cannot edit products" });
   const existing = await prisma.part.findUnique({ where: { id: req.params.id } });
   if (!existing) return res.status(404).json({ error: "Part not found" });
   const data = req.body as Record<string, unknown>;
@@ -76,6 +84,7 @@ partsRouter.patch("/:id", async (req, res) => {
     where: { id: existing.id },
     data: {
       name: typeof data.name === "string" ? data.name : undefined,
+      oemNumber: typeof data.oemNumber === "string" ? data.oemNumber : undefined,
       category: typeof data.category === "string" ? data.category : undefined,
       binLocation: typeof data.binLocation === "string" ? data.binLocation : undefined,
       cost: typeof data.cost === "number" ? data.cost : undefined,
@@ -89,14 +98,18 @@ partsRouter.patch("/:id", async (req, res) => {
 });
 
 partsRouter.post("/:id/adjust", async (req, res) => {
+  if (req.user!.role !== "SUPER_ADMIN") {
+    return res.status(403).json({ error: "Only Super Admin can add or adjust product quantity. Receive imports on a purchase order." });
+  }
   const part = await prisma.part.findUnique({ where: { id: req.params.id } });
-  if (!part) return res.status(404).json({ error: "Part not found" });
+  if (!part) return res.status(404).json({ error: "Product not found" });
   const qty = Number(req.body.qty);
   const reason = String(req.body.reason || "");
-  const type = String(req.body.type || "ADJUSTMENT");
+  const type = qty > 0 ? "RECEIPT" : String(req.body.type || "ADJUSTMENT");
   if (!qty || !reason) return res.status(400).json({ error: "Qty and reason required" });
 
-  if (!canBypassApproval(req.user!.role)) {
+  const instant = canBypassApproval(req.user!.role);
+  if (!instant) {
     const approval = await prisma.approval.create({
       data: {
         type: "ADJUST_STOCK",
@@ -113,10 +126,9 @@ partsRouter.post("/:id/adjust", async (req, res) => {
     return res.status(202).json({ pending: true, approval });
   }
 
-  const nextQty = type === "RECEIPT" ? part.qtyOnHand + qty : part.qtyOnHand + qty;
   const updated = await prisma.part.update({
     where: { id: part.id },
-    data: { qtyOnHand: nextQty },
+    data: { qtyOnHand: part.qtyOnHand + qty },
   });
   await prisma.stockMovement.create({
     data: { partId: part.id, type, qty, reason, reference: req.body.reference, userId: req.user!.id },
@@ -124,7 +136,14 @@ partsRouter.post("/:id/adjust", async (req, res) => {
   if (type === "RECEIPT") {
     await postStockReceipt({ partId: part.id, sku: part.sku, qty, cost: part.cost, userId: req.user!.id });
   }
-  await audit(req, { entity: "Part", entityId: part.id, action: "ADJUST_STOCK", oldValue: part, newValue: updated, reason });
+  await audit(req, {
+    entity: "Part",
+    entityId: part.id,
+    action: "ADJUST_STOCK",
+    oldValue: { sku: part.sku, qtyOnHand: part.qtyOnHand },
+    newValue: { sku: updated.sku, qtyOnHand: updated.qtyOnHand, qty, type },
+    reason,
+  });
   if (updated.qtyOnHand <= updated.reorderLevel) {
     await emit("stock.low", { sku: updated.sku, qtyOnHand: updated.qtyOnHand, reorderLevel: updated.reorderLevel });
   }
@@ -133,7 +152,7 @@ partsRouter.post("/:id/adjust", async (req, res) => {
 
 partsRouter.delete("/:id", async (req, res) => {
   const part = await prisma.part.findUnique({ where: { id: req.params.id } });
-  if (!part) return res.status(404).json({ error: "Part not found" });
+  if (!part) return res.status(404).json({ error: "Product not found" });
   const reason = String(req.body?.reason || "Remove from catalogue");
   if (!canBypassApproval(req.user!.role)) {
     const approval = await prisma.approval.create({

@@ -4,6 +4,8 @@ import { prisma } from "../lib/prisma.js";
 import { emit, newSecret, WEBHOOK_EVENTS } from "../lib/webhooks.js";
 import { enqueue } from "../lib/queue.js";
 import { roles } from "../middleware/auth.js";
+import { applyMpesaReceipt } from "../lib/mpesa-apply.js";
+import { stkItems } from "../lib/daraja.js";
 
 export const incomingWebhooksRouter = Router();
 export const webhooksRouter = Router();
@@ -27,39 +29,24 @@ incomingWebhooksRouter.post("/incoming/mpesa", async (req, res) => {
     data: { source: "mpesa", payload: JSON.stringify(req.body ?? {}) },
   });
   await enqueue("incoming.mpesa", req.body ?? {});
-  const parsed = parseMpesa(req.body);
-  if (parsed) {
-    const order = parsed.orderNumber
-      ? await prisma.order.findUnique({ where: { number: parsed.orderNumber }, include: { payments: true, lines: true } })
-      : null;
-    if (order && parsed.amount > 0) {
-      const pay = await prisma.payment.create({
-        data: { orderId: order.id, method: "MPESA", amount: parsed.amount, reference: parsed.reference },
-      });
-      await emit("payment.recorded", { orderId: order.id, number: order.number, payment: pay, automated: true });
-    }
-    await emit("incoming.mpesa", parsed);
+  const stk = req.body?.Body?.stkCallback || req.body?.stkCallback ? stkItems(req.body) : null;
+  const receipt = String(req.body?.TransID || stk?.receipt || req.body?.reference || "");
+  const amount = Number(req.body?.TransAmount || stk?.amount || req.body?.amount || 0);
+  const accountRef = String(req.body?.BillRefNumber || req.body?.orderNumber || stk?.checkoutRequest || "");
+  if (receipt && amount > 0) {
+    await applyMpesaReceipt({
+      receipt,
+      amount,
+      phone: String(req.body?.MSISDN || stk?.phone || ""),
+      accountRef: accountRef || String(req.body?.orderNumber || ""),
+      raw: req.body,
+    });
   }
+  await emit("incoming.mpesa", { receipt, amount, accountRef });
   res.json({ ok: true });
 });
 
-function parseMpesa(body: any) {
-  if (!body) return null;
-  if (body.orderNumber && body.amount) {
-    return { orderNumber: String(body.orderNumber), amount: Number(body.amount), reference: String(body.reference || body.TransID || "") };
-  }
-  const cb = body.Body?.stkCallback || body.stkCallback;
-  if (!cb) return null;
-  const items = cb.CallbackMetadata?.Item || [];
-  const get = (name: string) => items.find((i: any) => i.Name === name)?.Value;
-  return {
-    orderNumber: String(body.orderNumber || cb.AccountReference || ""),
-    amount: Number(get("Amount") || 0),
-    reference: String(get("MpesaReceiptNumber") || ""),
-  };
-}
-
-webhooksRouter.get("/events", (_req, res) => res.json(WEBHOOK_EVENTS));
+webhooksRouter.get("/events", roles("SUPER_ADMIN", "ADMIN"), (_req, res) => res.json(WEBHOOK_EVENTS));
 
 webhooksRouter.get("/endpoints", roles("SUPER_ADMIN", "ADMIN"), async (_req, res) => {
   res.json(await prisma.webhookEndpoint.findMany({ orderBy: { createdAt: "desc" } }));

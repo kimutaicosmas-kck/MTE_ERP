@@ -1,17 +1,22 @@
 import { Router } from "express";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/audit.js";
-import { roles } from "../middleware/auth.js";
+import { roles, moduleAccess } from "../middleware/auth.js";
 import { postStockReceipt, reverseJournal } from "../lib/ledger.js";
 import { emit } from "../lib/webhooks.js";
 
 export const approvalsRouter = Router();
+approvalsRouter.use(moduleAccess("approvals"));
 
 approvalsRouter.get("/", async (req, res) => {
   const status = typeof req.query.status === "string" ? req.query.status : undefined;
+  const scoped = ["SALES", "WAREHOUSE"].includes(req.user!.role);
   res.json(
     await prisma.approval.findMany({
-      where: status ? { status } : undefined,
+      where: {
+        ...(status ? { status } : {}),
+        ...(scoped ? { requesterId: req.user!.id } : {}),
+      },
       include: {
         requester: { select: { name: true, role: true } },
         reviewer: { select: { name: true } },

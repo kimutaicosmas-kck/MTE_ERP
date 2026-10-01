@@ -1,17 +1,44 @@
 import { Router } from "express";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/audit.js";
-import { postExpense, postJournal } from "../lib/ledger.js";
+import { postExpense, postJournal, postPayment, postVendorPayment } from "../lib/ledger.js";
+import { listInvoices, refreshInvoiceStatus } from "../lib/invoice.js";
 import { canBypassApproval } from "../lib/auth.js";
-import { roles } from "../middleware/auth.js";
+import { roles, moduleAccess } from "../middleware/auth.js";
 
 export const financeRouter = Router();
+
+financeRouter.use(moduleAccess("finance"));
+
+financeRouter.get("/invoices", async (_req, res) => {
+  res.json(await listInvoices());
+});
+
+financeRouter.post("/invoices/:id/pay", async (req, res) => {
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: req.params.id },
+    include: { order: { include: { lines: true, payments: true } } },
+  });
+  if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+  const amount = Number(req.body.amount);
+  const method = String(req.body.method || "CASH");
+  const reference = req.body.reference ? String(req.body.reference) : null;
+  if (!amount || amount <= 0) return res.status(400).json({ error: "Amount required" });
+  if (method === "MPESA" && !reference) return res.status(400).json({ error: "M-Pesa reference required" });
+  const pay = await prisma.payment.create({
+    data: { orderId: invoice.orderId, method, amount, reference, userId: req.user!.id },
+  });
+  await postPayment({ orderId: invoice.orderId, number: invoice.number, method, amount, userId: req.user!.id });
+  const updated = await refreshInvoiceStatus(invoice.orderId);
+  await audit(req, { entity: "Payment", entityId: pay.id, action: "CREATE", newValue: { invoice: invoice.number, amount } });
+  res.status(201).json({ payment: pay, invoice: updated });
+});
 
 financeRouter.get("/accounts", async (_req, res) => {
   res.json(await prisma.account.findMany({ orderBy: { code: "asc" } }));
 });
 
-financeRouter.get("/journals", roles("SUPER_ADMIN", "ADMIN", "FINANCE"), async (_req, res) => {
+financeRouter.get("/journals", async (_req, res) => {
   res.json(
     await prisma.journal.findMany({
       include: { lines: { include: { account: true } }, user: { select: { name: true } } },
@@ -21,7 +48,7 @@ financeRouter.get("/journals", roles("SUPER_ADMIN", "ADMIN", "FINANCE"), async (
   );
 });
 
-financeRouter.post("/journals", roles("SUPER_ADMIN", "FINANCE"), async (req, res) => {
+financeRouter.post("/journals", async (req, res) => {
   if (!canBypassApproval(req.user!.role)) {
     const approval = await prisma.approval.create({
       data: {
@@ -121,7 +148,7 @@ financeRouter.get("/expenses", async (_req, res) => {
   res.json(await prisma.expense.findMany({ include: { user: { select: { name: true } } }, orderBy: { date: "desc" } }));
 });
 
-financeRouter.post("/expenses", roles("SUPER_ADMIN", "ADMIN", "FINANCE"), async (req, res) => {
+financeRouter.post("/expenses", async (req, res) => {
   const exp = await prisma.expense.create({
     data: {
       category: req.body.category,
@@ -176,7 +203,7 @@ async function ensureBanks() {
   });
 }
 
-financeRouter.get("/banks", roles("SUPER_ADMIN", "ADMIN", "FINANCE"), async (_req, res) => {
+financeRouter.get("/banks", async (_req, res) => {
   await ensureBanks();
   const banks = await prisma.bankAccount.findMany({ include: { lines: { orderBy: { date: "desc" } } } });
   const payments = await prisma.payment.findMany({
@@ -193,7 +220,7 @@ financeRouter.get("/banks", roles("SUPER_ADMIN", "ADMIN", "FINANCE"), async (_re
   });
 });
 
-financeRouter.post("/banks/:id/lines", roles("SUPER_ADMIN", "ADMIN", "FINANCE"), async (req, res) => {
+financeRouter.post("/banks/:id/lines", async (req, res) => {
   const line = await prisma.bankStatementLine.create({
     data: {
       bankAccountId: req.params.id,
@@ -206,7 +233,7 @@ financeRouter.post("/banks/:id/lines", roles("SUPER_ADMIN", "ADMIN", "FINANCE"),
   res.status(201).json(line);
 });
 
-financeRouter.post("/banks/match", roles("SUPER_ADMIN", "ADMIN", "FINANCE"), async (req, res) => {
+financeRouter.post("/banks/match", async (req, res) => {
   const line = await prisma.bankStatementLine.update({
     where: { id: req.body.lineId },
     data: { matched: true, paymentId: req.body.paymentId || null },
@@ -215,7 +242,39 @@ financeRouter.post("/banks/match", roles("SUPER_ADMIN", "ADMIN", "FINANCE"), asy
   res.json(line);
 });
 
-financeRouter.post("/banks/unmatch", roles("SUPER_ADMIN", "FINANCE"), async (req, res) => {
+financeRouter.get("/bills", async (_req, res) => {
+  const bills = await prisma.vendorBill.findMany({
+    include: {
+      vendor: true,
+      purchase: { select: { number: true } },
+      payments: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  res.json(bills.map((b) => ({ ...b, balance: Math.round((b.gross - b.paid) * 100) / 100 })));
+});
+
+financeRouter.post("/bills/:id/pay", async (req, res) => {
+  const bill = await prisma.vendorBill.findUnique({ where: { id: req.params.id }, include: { payments: true } });
+  if (!bill) return res.status(404).json({ error: "Vendor bill not found" });
+  if (bill.status === "VOID") return res.status(400).json({ error: "Bill is void" });
+  const amount = Number(req.body.amount);
+  const method = String(req.body.method || "BANK");
+  if (!amount || amount <= 0) return res.status(400).json({ error: "Amount required" });
+  const due = bill.gross - bill.paid;
+  if (amount > due + 0.01) return res.status(400).json({ error: "Cannot pay more than the balance" });
+  const pay = await prisma.vendorPayment.create({
+    data: { billId: bill.id, method, amount, reference: req.body.reference, userId: req.user!.id },
+  });
+  await postVendorPayment({ billId: bill.id, number: bill.number, method, amount, userId: req.user!.id });
+  const paid = bill.paid + amount;
+  const status = paid + 0.01 >= bill.gross ? "PAID" : "PARTIAL";
+  const updated = await prisma.vendorBill.update({ where: { id: bill.id }, data: { paid, status } });
+  await audit(req, { entity: "VendorPayment", entityId: pay.id, action: "CREATE", newValue: { bill: bill.number, amount } });
+  res.status(201).json({ payment: pay, bill: { ...updated, balance: Math.round((updated.gross - updated.paid) * 100) / 100 } });
+});
+
+financeRouter.post("/banks/unmatch", async (req, res) => {
   const line = await prisma.bankStatementLine.update({
     where: { id: req.body.lineId },
     data: { matched: false, paymentId: null },

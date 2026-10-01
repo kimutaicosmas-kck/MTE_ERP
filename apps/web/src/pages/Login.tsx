@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { Scale } from "lucide-react";
 
@@ -14,6 +14,7 @@ const demos = [
 export function Login() {
   const { user, login } = useAuth();
   const nav = useNavigate();
+  const loc = useLocation();
   const [email, setEmail] = useState("superadmin@mte.local");
   const [password, setPassword] = useState("Mte@2026");
   const [error, setError] = useState("");
@@ -35,7 +36,7 @@ export function Login() {
   }
 
   return (
-    <div className="grid min-h-screen lg:grid-cols-2">
+    <div className="grid min-h-svh bg-paper dark:bg-night lg:grid-cols-2">
       <div className="relative hidden bg-ink p-12 text-white lg:flex lg:flex-col justify-between">
         <div className="absolute left-0 top-0 h-full w-2 bg-gold" />
         <div>
@@ -50,10 +51,17 @@ export function Login() {
         </div>
         <p className="text-xs uppercase tracking-widest text-stone-500">MTE · operations system</p>
       </div>
-      <div className="grid place-items-center p-8">
+      <div className="grid place-items-center p-5 sm:p-8">
         <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4">
+          <div className="lg:hidden">
+            <p className="text-xs uppercase tracking-[0.3em] text-gold">MTE operations</p>
+            <h1 className="font-serif text-4xl">ERP</h1>
+          </div>
           <h2 className="font-serif text-3xl">Sign in</h2>
           <p className="text-sm text-stone-500">Use a demo account. Password for all: <strong>Mte@2026</strong></p>
+          {Boolean((loc.state as { idle?: boolean } | null)?.idle) && (
+            <div className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">Signed out after 15 minutes idle.</div>
+          )}
           {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
           <div>
             <label>Email</label>
@@ -63,7 +71,7 @@ export function Login() {
             <label>Password</label>
             <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" required />
           </div>
-          <button className="btn w-full" disabled={busy}>{busy ? "Signing in…" : "Enter the system"}</button>
+          <button className="btn-gold w-full" disabled={busy}>{busy ? "Signing in…" : "Enter the system"}</button>
           <div className="flex flex-wrap gap-2 pt-2">
             {demos.map(([em, role]) => (
               <button key={em} type="button" className="btn-ghost text-xs" onClick={() => setEmail(em)}>

@@ -8,22 +8,22 @@ async function main() {
 
   const [superAdmin, admin, sales, sales2, warehouse, finance] = await Promise.all([
     prisma.user.create({
-      data: { name: "Cosmas Kimutai", email: "superadmin@mte.local", passwordHash, role: "SUPER_ADMIN", monthlyTarget: 800000, commissionRate: 0.02 },
+      data: { name: "Cosmas Kimutai", email: "superadmin@mte.local", passwordHash, role: "SUPER_ADMIN", department: "Administration", monthlyTarget: 800000, commissionRate: 0.02 },
     }),
     prisma.user.create({
-      data: { name: "Grace Wanjiku", email: "admin@mte.local", passwordHash, role: "ADMIN", monthlyTarget: 500000, commissionRate: 0.02 },
+      data: { name: "Grace Wanjiku", email: "admin@mte.local", passwordHash, role: "ADMIN", department: "Administration", monthlyTarget: 500000, commissionRate: 0.02 },
     }),
     prisma.user.create({
-      data: { name: "John Mwangi", email: "sales@mte.local", passwordHash, role: "SALES", phone: "+254723909380", monthlyTarget: 350000, commissionRate: 0.04 },
+      data: { name: "John Mwangi", email: "sales@mte.local", passwordHash, role: "SALES", department: "Sales", phone: "+254723909380", monthlyTarget: 350000, commissionRate: 0.04 },
     }),
     prisma.user.create({
-      data: { name: "Amina Yusuf", email: "sales2@mte.local", passwordHash, role: "SALES", monthlyTarget: 280000, commissionRate: 0.035 },
+      data: { name: "Amina Yusuf", email: "sales2@mte.local", passwordHash, role: "SALES", department: "Sales", monthlyTarget: 280000, commissionRate: 0.035 },
     }),
     prisma.user.create({
-      data: { name: "Daniel Otieno", email: "warehouse@mte.local", passwordHash, role: "WAREHOUSE" },
+      data: { name: "Daniel Otieno", email: "warehouse@mte.local", passwordHash, role: "WAREHOUSE", department: "Warehouse" },
     }),
     prisma.user.create({
-      data: { name: "Faith Njeri", email: "finance@mte.local", passwordHash, role: "FINANCE" },
+      data: { name: "Faith Njeri", email: "finance@mte.local", passwordHash, role: "FINANCE", department: "Finance" },
     }),
   ]);
 
@@ -40,6 +40,9 @@ async function main() {
     ["4000", "Sales revenue", "INCOME"],
     ["5000", "Cost of goods sold", "COGS"],
     ["6000", "Operating expenses", "EXPENSE"],
+    ["6100", "Salaries", "EXPENSE"],
+    ["2200", "PAYE payable", "LIABILITY"],
+    ["2210", "Statutory payable", "LIABILITY"],
   ] as const;
   for (const [code, name, type] of accounts) {
     await prisma.account.create({ data: { code, name, type } });
@@ -161,6 +164,53 @@ async function main() {
     },
   });
 
+  await prisma.purchaseOrder.create({
+    data: {
+      number: "PO-00001",
+      vendorId: v1.id,
+      status: "ORDERED",
+      reference: "SHA-26-041",
+      notes: "Import container — receive against this PO, do not add stock on the catalogue.",
+      expectedAt: new Date(Date.now() + 12 * 86400000),
+      createdById: admin.id,
+      lines: {
+        create: [
+          { partId: parts[5].id, qtyOrdered: 40, unitCost: parts[5].cost },
+          { partId: parts[7].id, qtyOrdered: 24, unitCost: parts[7].cost },
+        ],
+      },
+    },
+  });
+  await prisma.purchaseOrder.create({
+    data: {
+      number: "PO-00002",
+      vendorId: v2.id,
+      status: "DRAFT",
+      reference: "Quote AH-884",
+      notes: "Aftermarket top-up",
+      createdById: warehouse.id,
+      lines: {
+        create: [{ partId: parts[3].id, qtyOrdered: 8, unitCost: parts[3].cost }],
+      },
+    },
+  });
+
+  await prisma.order.create({
+    data: {
+      number: "ORD-00004",
+      channel: "FIELD",
+      status: "DISPATCHED",
+      customerId: cust1.id,
+      salespersonId: sales2.id,
+      dispatchMethod: "COURIER",
+      tracking: "G4S-99210",
+      notes: "Out for delivery — warehouse can mark delivered",
+      lines: {
+        create: [{ partId: parts[1].id, vendorId: v2.id, qty: 1, salePrice: parts[1].salePrice, cost: parts[1].cost }],
+      },
+    },
+  });
+
   const { postSale, postPayment } = await import("../src/lib/ledger.js");
   await postSale({ id: o1.id, number: o1.number, vatRate: 0.16, lines: o1.lines }, sales.id);
   await postPayment({ orderId: o1.id, number: o1.number, method: "MPESA", amount: 20000, userId: sales.id });
@@ -211,6 +261,9 @@ async function main() {
       { code: "MPESA", name: "M-Pesa till" },
     ],
   });
+
+  const { ensureCompany } = await import("../src/lib/sequence.js");
+  await ensureCompany();
 
   console.log("Seeded MTE ERP. Super Admin: Cosmas Kimutai. Demo password for all users: Mte@2026");
 }

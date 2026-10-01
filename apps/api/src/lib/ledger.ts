@@ -98,6 +98,18 @@ export async function postPayment(input: {
   amount: number;
   userId?: string;
 }) {
+  if (input.method === "CREDIT_NOTE") {
+    return postJournal({
+      memo: `Credit note ${input.number}`,
+      source: "CREDIT_NOTE",
+      sourceId: input.orderId,
+      userId: input.userId,
+      lines: [
+        { code: "4000", debit: input.amount },
+        { code: "1100", credit: input.amount },
+      ],
+    });
+  }
   const cashCode =
     input.method === "MPESA" ? "1010" : input.method === "BANK" ? "1020" : "1000";
   return postJournal({
@@ -148,6 +160,95 @@ export async function postStockReceipt(input: {
     lines: [
       { code: "1200", debit: value },
       { code: "2000", credit: value },
+    ],
+  });
+}
+
+export async function postApReceipt(input: {
+  billId: string;
+  number: string;
+  inventory: number;
+  vat: number;
+  userId?: string;
+}) {
+  return postJournal({
+    memo: `Vendor bill ${input.number}`,
+    source: "AP_BILL",
+    sourceId: input.billId,
+    userId: input.userId,
+    lines: [
+      { code: "1200", debit: input.inventory },
+      { code: "2110", debit: input.vat },
+      { code: "2000", credit: input.inventory + input.vat },
+    ],
+  });
+}
+
+export async function postVendorPayment(input: {
+  billId: string;
+  number: string;
+  method: string;
+  amount: number;
+  userId?: string;
+}) {
+  const cashCode = input.method === "MPESA" ? "1010" : input.method === "BANK" ? "1020" : "1000";
+  return postJournal({
+    memo: `Vendor payment ${input.number} ${input.method}`,
+    source: "AP_PAY",
+    sourceId: input.billId,
+    userId: input.userId,
+    lines: [
+      { code: "2000", debit: input.amount },
+      { code: cashCode, credit: input.amount },
+    ],
+  });
+}
+
+export async function postSaleReturn(input: {
+  id: string;
+  number: string;
+  vatRate: number;
+  lines: { qty: number; salePrice: number; cost: number }[];
+  userId?: string;
+}) {
+  const net = input.lines.reduce((s, l) => s + l.qty * l.salePrice, 0);
+  const vat = round(net * input.vatRate);
+  const cogs = input.lines.reduce((s, l) => s + l.qty * l.cost, 0);
+  return postJournal({
+    memo: `Sales return ${input.number}`,
+    source: "SALE_RETURN",
+    sourceId: input.id,
+    userId: input.userId,
+    lines: [
+      { code: "4000", debit: net },
+      { code: "2100", debit: vat },
+      { code: "1100", credit: net + vat },
+      { code: "1200", debit: cogs },
+      { code: "5000", credit: cogs },
+    ],
+  });
+}
+
+export async function postPayroll(input: {
+  id: string;
+  number: string;
+  basic: number;
+  allowances: number;
+  deductions: number;
+  paye: number;
+  net: number;
+  userId?: string;
+}) {
+  return postJournal({
+    memo: `Payroll ${input.number}`,
+    source: "PAYROLL",
+    sourceId: input.id,
+    userId: input.userId,
+    lines: [
+      { code: "6100", debit: input.basic + input.allowances },
+      { code: "2200", credit: input.paye },
+      { code: "2210", credit: input.deductions },
+      { code: "1000", credit: input.net },
     ],
   });
 }

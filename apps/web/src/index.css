@@ -2,26 +2,351 @@
 @tailwind components;
 @tailwind utilities;
 
+html { -webkit-text-size-adjust: 100%; }
 html, body, #root { min-height: 100%; }
-body { font-feature-settings: "ss01"; }
+body { font-feature-settings: "ss01"; overflow-x: clip; }
+html.dark body { background: #0f1216; color: #f5f2ea; }
 
-input, select, textarea {
-  @apply w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-gold;
+input:not([type="checkbox"]):not([type="radio"]), select, textarea {
+  @apply w-full min-w-0 rounded-md border border-stone-300 bg-white px-3 py-2 outline-none focus:border-gold dark:border-white/15 dark:bg-[#11161c] dark:text-stone-100;
+  font-size: 16px;
 }
+@media (min-width: 640px) {
+  input:not([type="checkbox"]):not([type="radio"]), select, textarea { font-size: 0.875rem; }
+}
+input[type="checkbox"] { width: 1rem; height: 1rem; accent-color: #c4a035; }
 label { @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-stone-500; }
-button.btn {
-  @apply inline-flex items-center justify-center gap-2 rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-black;
+.btn, .btn-gold, .btn-success, .btn-danger, .btn-ghost,
+button.btn, button.btn-gold, button.btn-success, button.btn-danger, button.btn-ghost {
+  @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold disabled:pointer-events-none disabled:opacity-45;
 }
-button.btn-gold {
-  @apply inline-flex items-center justify-center gap-2 rounded-md bg-gold px-4 py-2 text-sm font-semibold text-ink hover:brightness-105;
+.btn, button.btn {
+  @apply bg-ink text-white hover:bg-black;
 }
-button.btn-ghost {
-  @apply inline-flex items-center justify-center gap-2 rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium hover:bg-stone-50;
+.btn-gold, button.btn-gold {
+  background: #c4a035;
+  color: #111418;
 }
-.card { @apply rounded-xl border border-stone-200 bg-white p-4 shadow-sm; }
-.table-wrap { @apply overflow-x-auto rounded-xl border border-stone-200 bg-white; }
-table.data { @apply w-full text-left text-sm; }
-table.data th { @apply bg-ink px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-white; }
-table.data td { @apply border-t border-stone-100 px-3 py-2.5 align-middle; }
-table.data tr:hover td { @apply bg-stone-50; }
+.btn-gold:hover, button.btn-gold:hover { background: #b08d28; }
+.btn-success, button.btn-success {
+  background: #0f7a4a;
+  color: #fff;
+}
+.btn-success:hover, button.btn-success:hover { background: #0b633c; }
+.btn-danger, button.btn-danger {
+  background: #c0392b;
+  color: #fff;
+}
+.btn-danger:hover, button.btn-danger:hover { background: #a33025; }
+.btn-ghost, button.btn-ghost {
+  @apply border border-stone-300 bg-white px-3 font-medium text-stone-700 hover:bg-stone-50 dark:border-white/15 dark:bg-transparent dark:text-stone-100 dark:hover:bg-white/5;
+}
+a.btn, a.btn-gold, a.btn-success, a.btn-danger, a.btn-ghost {
+  text-decoration: none;
+}
+.card { @apply rounded-2xl border border-stone-200 bg-white p-3 shadow-sm sm:p-4 dark:border-white/10 dark:bg-[#171c22]; }
+.fab {
+  @apply fixed bottom-20 right-4 z-30 grid h-14 w-14 place-items-center rounded-full bg-gold text-ink shadow-lg;
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  background: rgb(0 0 0 / 0.45);
+  padding: max(0.75rem, env(safe-area-inset-top)) 0.75rem calc(1.25rem + env(safe-area-inset-bottom));
+}
+.modal-panel {
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+@media (min-width: 640px) {
+  .modal-backdrop {
+    display: grid;
+    place-items: start center;
+    padding: 1.5rem;
+  }
+  .modal-panel {
+    max-height: min(90vh, 52rem);
+    overflow-y: auto;
+    margin-top: 4vh;
+  }
+}
+.bottom-nav {
+  @apply fixed inset-x-0 bottom-0 z-30 flex border-t border-stone-200 bg-paper/95 px-1 pt-1 backdrop-blur dark:border-white/10 dark:bg-night/95;
+  padding-bottom: max(0.4rem, env(safe-area-inset-bottom));
+}
+.table-wrap { @apply -mx-3 overflow-x-auto rounded-none border-y border-stone-200 bg-white sm:mx-0 sm:rounded-xl sm:border dark:border-white/10 dark:bg-[#171c22]; }
+table.data, table.invoice { @apply w-full text-left text-sm; min-width: 40rem; }
+table.compact { min-width: 0 !important; }
+table.data th,
+table.invoice th {
+  @apply whitespace-nowrap bg-transparent px-3 py-3 text-[11px] font-semibold uppercase tracking-wide text-stone-400;
+}
+table.data td,
+table.invoice td {
+  @apply whitespace-nowrap border-t border-stone-100 px-3 py-3.5 align-middle text-stone-700 dark:border-white/10 dark:text-stone-200;
+}
+table.data td.cell-wrap,
+table.invoice td.cell-wrap {
+  white-space: normal;
+  max-width: 16rem;
+}
+table.data input:not([type="checkbox"]):not([type="radio"]),
+table.invoice input:not([type="checkbox"]):not([type="radio"]) {
+  width: 5.75rem !important;
+  min-width: 5.75rem;
+  max-width: 5.75rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8125rem;
+}
+table.data tr:hover td,
+table.invoice tr:hover td { @apply bg-stone-50 dark:bg-white/5; }
+.pager { @apply flex flex-wrap items-center justify-between gap-2 px-1 pt-3; }
+.toolbar { @apply flex flex-wrap items-center gap-2; }
+.toolbar > input, .toolbar > select { @apply min-w-0 flex-1 basis-full sm:min-w-[12rem] sm:basis-auto; }
+.tabs {
+  @apply -mx-3 flex gap-1 overflow-x-auto border-b border-stone-200 px-3 sm:mx-0 sm:overflow-visible sm:px-0;
+  -webkit-overflow-scrolling: touch;
+}
+.tabs-item {
+  @apply -mb-px shrink-0 border-b-2 px-3 py-2.5 text-sm font-semibold sm:px-4 sm:py-3;
+}
+.tabs-item-on { @apply border-gold text-ink dark:text-stone-100; }
+.tabs-item-off { @apply border-transparent text-stone-500; }
+.vat-pill {
+  @apply inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold;
+}
 .badge { @apply inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide; }
+.sidebar-nav {
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.35) transparent;
+}
+.sidebar-nav::-webkit-scrollbar { width: 8px; }
+.sidebar-nav::-webkit-scrollbar-track { background: transparent; }
+.sidebar-nav::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+}
+
+@media (max-width: 639px) {
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  .toolbar > input:not([type="date"]),
+  .toolbar > select {
+    flex: 1 1 100%;
+  }
+  .toolbar > button,
+  .toolbar > a {
+    min-height: 2.15rem;
+    width: auto;
+    padding: 0.35rem 0.7rem;
+    font-size: 0.8rem;
+    border-radius: 999px;
+  }
+  .tabs {
+    margin: 0;
+    padding: 0.28rem;
+    border: 1px solid rgb(231 229 225);
+    border-radius: 999px;
+    background: #f5f5f4;
+    gap: 0.25rem;
+  }
+  html.dark .tabs {
+    border-color: rgb(255 255 255 / 0.1);
+    background: #11161c;
+  }
+  .tabs-item {
+    margin: 0;
+    border: 0 !important;
+    border-radius: 999px;
+    padding: 0.55rem 0.9rem;
+  }
+  .tabs-item-on {
+    background: #fff;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+  }
+  html.dark .tabs-item-on { background: #1d242c; }
+  .table-wrap {
+    margin-left: 0;
+    margin-right: 0;
+    overflow: visible;
+    border: none;
+    background: transparent;
+    border-radius: 0;
+  }
+  table.data,
+  table.invoice {
+    min-width: 0 !important;
+  }
+  table.data thead,
+  table.invoice thead {
+    display: none;
+  }
+  table.data tbody,
+  table.invoice tbody,
+  table.data,
+  table.invoice {
+    display: block;
+    width: 100%;
+  }
+  table.data tr,
+  table.invoice tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 0.75rem;
+    row-gap: 0.2rem;
+    margin-bottom: 0.5rem;
+    border-radius: 0.9rem;
+    border: 1px solid rgb(231 229 225);
+    background: #fff;
+    padding: 0.7rem 0.8rem;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.03);
+  }
+  html.dark table.data tr,
+  html.dark table.invoice tr {
+    border-color: rgb(255 255 255 / 0.1);
+    background: #171c22;
+  }
+  table.data td,
+  table.invoice td {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.1rem;
+    width: auto;
+    min-width: 0;
+    white-space: normal;
+    border: 0 !important;
+    padding: 0.18rem 0;
+    background: transparent !important;
+    font-size: 0.82rem;
+  }
+  table.data td::before,
+  table.invoice td::before {
+    content: attr(data-label);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #a8a29e;
+  }
+  table.data td:first-child,
+  table.invoice td:first-child {
+    grid-column: 1 / -1;
+    font-size: 0.95rem;
+    font-weight: 650;
+    padding-bottom: 0.4rem;
+    margin-bottom: 0.15rem;
+    border-bottom: 1px solid rgb(231 229 225) !important;
+  }
+  html.dark table.data td:first-child,
+  html.dark table.invoice td:first-child {
+    border-bottom-color: rgb(255 255 255 / 0.08) !important;
+  }
+  table.data td:first-child::before,
+  table.invoice td:first-child::before {
+    content: none;
+  }
+  table.data td[data-label="Actions"],
+  table.invoice td[data-label="Actions"],
+  table.data td[data-label="Action"],
+  table.invoice td[data-label="Action"],
+  table.data td[data-label="PDF"],
+  table.invoice td[data-label="PDF"],
+  table.data td[data-label="Statement"],
+  table.invoice td[data-label="Statement"],
+  table.data td[data-label="Access"],
+  table.invoice td[data-label="Access"],
+  table.data td[data-label=""],
+  table.invoice td[data-label=""] {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    padding-top: 0.4rem;
+    margin-top: 0.1rem;
+    border-top: 1px solid rgb(231 229 225) !important;
+  }
+  html.dark table.data td[data-label="Actions"],
+  html.dark table.invoice td[data-label="Actions"],
+  html.dark table.data td[data-label="Action"],
+  html.dark table.invoice td[data-label="Action"],
+  html.dark table.data td[data-label="PDF"],
+  html.dark table.invoice td[data-label="PDF"],
+  html.dark table.data td[data-label="Statement"],
+  html.dark table.invoice td[data-label="Statement"],
+  html.dark table.data td[data-label="Access"],
+  html.dark table.invoice td[data-label="Access"],
+  html.dark table.data td[data-label=""],
+  html.dark table.invoice td[data-label=""] {
+    border-top-color: rgb(255 255 255 / 0.08) !important;
+  }
+  table.data td[data-label="Actions"]::before,
+  table.invoice td[data-label="Actions"]::before,
+  table.data td[data-label="Action"]::before,
+  table.invoice td[data-label="Action"]::before,
+  table.data td[data-label="PDF"]::before,
+  table.invoice td[data-label="PDF"]::before,
+  table.data td[data-label="Statement"]::before,
+  table.invoice td[data-label="Statement"]::before,
+  table.data td[data-label="Access"]::before,
+  table.invoice td[data-label="Access"]::before,
+  table.data td[data-label=""]::before,
+  table.invoice td[data-label=""]::before {
+    content: none;
+  }
+  table.data td .btn-ghost,
+  table.invoice td .btn-ghost,
+  table.data td .btn-gold,
+  table.invoice td .btn-gold,
+  table.data td .btn-success,
+  table.invoice td .btn-success,
+  table.data td .btn-danger,
+  table.invoice td .btn-danger,
+  table.data td button,
+  table.invoice td button,
+  table.data td a,
+  table.invoice td a,
+  table.data td label.btn-ghost,
+  table.invoice td label.btn-ghost {
+    min-height: 1.8rem;
+    width: auto;
+    padding: 0.2rem 0.6rem;
+    font-size: 0.72rem;
+    border-radius: 999px;
+  }
+  table.data input:not([type="checkbox"]):not([type="radio"]),
+  table.invoice input:not([type="checkbox"]):not([type="radio"]) {
+    width: 100% !important;
+    min-width: 0;
+    max-width: none;
+  }
+  table.data td[colspan],
+  table.invoice td[colspan] {
+    grid-column: 1 / -1;
+    display: block;
+    text-align: center;
+    border: 0 !important;
+    font-weight: 400;
+    font-size: 0.875rem;
+  }
+  table.data td[colspan]::before,
+  table.invoice td[colspan]::before {
+    content: none;
+  }
+}
