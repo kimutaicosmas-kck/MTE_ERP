@@ -6,10 +6,12 @@ export function CaptureField({
   kind,
   refId,
   label,
+  onSaved,
 }: {
   kind: "delivery" | "product" | "receipt" | "customer";
   refId: string;
   label: string;
+  onSaved?: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [ok, setOk] = useState("");
@@ -45,6 +47,7 @@ export function CaptureField({
                 }),
               });
               setOk("Saved");
+              onSaved?.();
             } catch (error) {
               setErr((error as Error).message);
             } finally {

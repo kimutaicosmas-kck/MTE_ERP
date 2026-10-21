@@ -2,15 +2,22 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/audit.js";
-import { canBypassApproval } from "../lib/auth.js";
+import { recordActivity } from "../lib/activity.js";
+import { queueApproval } from "../lib/approval-request.js";
+import { executeSalesReturn, parseReturnBody } from "../lib/sales-return.js";
 import { postPayment, postSale, reverseJournal } from "../lib/ledger.js";
 import { emit } from "../lib/webhooks.js";
 import { canAccessOrder, hideMoneyForSales, ownOrderWhere } from "../lib/roles.js";
+import { canModule } from "../lib/access.js";
 import { moduleAccess } from "../middleware/auth.js";
 import { buildOrderPdf, deliveryNumber, documentSlug } from "../lib/pdf.js";
-import { ensureCompany, formatSaleNumber, nextOrderNumber, nextReturnNumber } from "../lib/sequence.js";
-import { postSaleReturn } from "../lib/ledger.js";
+import { ensureCompany, formatSaleNumber, nextOrderNumber, withUniqueNumber } from "../lib/sequence.js";
 import { issueInvoiceForOrder, refreshInvoiceStatus } from "../lib/invoice.js";
+import { markupTotal } from "../lib/markup-commission.js";
+import { packDocStyle, shareTokenFor, unpackDocStyle } from "../lib/doc-style.js";
+import { assertCreditAllowed } from "../lib/credit.js";
+import { zEntityId, zOptionalText } from "../lib/sanitize.js";
+import { canDispatchTransition, DISPATCH_METHODS, DISPATCH_PRIORITIES, isDispatchStep } from "../lib/dispatch-workflow.js";
 
 export const ordersRouter = Router();
 ordersRouter.use(moduleAccess("sales", "dispatch", "finance"));
@@ -32,7 +39,11 @@ function hideCost<T extends { cost?: number }>(role: string, rows: T[]): T[] {
 }
 
 ordersRouter.get("/", async (req, res) => {
-  const where = ownOrderWhere(req.user!);
+  const branchId = req.query.branchId ? String(req.query.branchId) : "";
+  const where = {
+    ...ownOrderWhere(req.user!),
+    ...(branchId ? { branchId } : {}),
+  };
   const orders = await prisma.order.findMany({
     where,
     include: {
@@ -45,13 +56,7 @@ ordersRouter.get("/", async (req, res) => {
     orderBy: { createdAt: "desc" },
   });
   const numbered = await Promise.all(orders.map((o) => withSaleNumber(o)));
-  res.json(
-    numbered.map((o) => ({
-      ...o,
-      lines: hideCost(req.user!.role, o.lines),
-      totals: hideMoneyForSales(req.user!.role, totals(o)),
-    }))
-  );
+  res.json(numbered.map((o) => decorateOrder(req.user!.role, o)));
 });
 
 ordersRouter.get("/:id", async (req, res) => {
@@ -65,12 +70,17 @@ ordersRouter.get("/:id", async (req, res) => {
       files: true,
       invoice: true,
       returns: { include: { lines: true } },
+      statusLogs: { include: { user: { select: { id: true, name: true } } }, orderBy: { createdAt: "asc" } },
+      vehicle: true,
+      driver: { select: { id: true, name: true, phone: true } },
+      dispatcher: { select: { id: true, name: true } },
+      qcBy: { select: { id: true, name: true } },
     },
   });
   if (!order) return res.status(404).json({ error: "Order not found" });
   if (!canAccessOrder(req.user!, order)) return res.status(403).json({ error: "You can only open your own orders" });
   const numbered = await withSaleNumber(order);
-  res.json({ ...numbered, lines: hideCost(req.user!.role, numbered.lines), totals: hideMoneyForSales(req.user!.role, totals(numbered)) });
+  res.json(decorateOrder(req.user!.role, numbered));
 });
 
 ordersRouter.get("/:id/pdf/:kind", async (req, res) => {
@@ -92,6 +102,7 @@ ordersRouter.get("/:id/pdf/:kind", async (req, res) => {
 
   const { setting } = await ensureCompany();
   const t = totals(order);
+  const style = unpackDocStyle(order.notes);
   const orderNo = formatSaleNumber(order.number, order.createdAt);
   const invoiceNo = order.invoice?.number || order.invoiceNumber || orderNo;
   const docNo = kind === "sale" ? invoiceNo : kind === "delivery" ? deliveryNumber(invoiceNo || orderNo) : orderNo;
@@ -106,8 +117,10 @@ ordersRouter.get("/:id/pdf/:kind", async (req, res) => {
     createdAt: order.createdAt,
     dispatchMethod: order.dispatchMethod,
     tracking: order.tracking,
-    notes: order.notes,
+    notes: style.intro || style.notes,
     vatRate: order.vatRate,
+    theme: style.theme,
+    validDays: style.validDays,
     customer: order.customer,
     salesperson: order.salesperson,
     company: {
@@ -163,14 +176,52 @@ ordersRouter.post("/:id/files", async (req, res) => {
 });
 
 const createBody = z.object({
-  channel: z.enum(["FIELD", "SHOP", "PHONE", "WHATSAPP", "EMAIL"]),
-  customerId: z.string(),
+  channel: z.enum(["FIELD", "SHOP", "PHONE", "EMAIL"]),
+  customerId: zEntityId(),
   dispatchMethod: z.enum(["SHOP_COLLECT", "COURIER"]).optional(),
-  tracking: z.string().optional(),
-  lpo: z.string().optional(),
-  notes: z.string().optional(),
-  lines: z.array(z.object({ partId: z.string(), qty: z.number().positive(), vendorId: z.string().optional() })).min(1),
+  tracking: zOptionalText(80),
+  lpo: zOptionalText(80),
+  notes: zOptionalText(2000),
+  intro: zOptionalText(2000),
+  theme: z.enum(["navy", "classic", "gold"]).optional(),
+  validDays: z.coerce.number().int().min(1).max(365).optional(),
+  lines: z.array(z.object({
+    partId: zEntityId(),
+    qty: z.number().positive().max(100000),
+    vendorId: zEntityId().optional(),
+    salePrice: z.number().nonnegative().max(1e9).optional(),
+  })).min(1).max(200),
 });
+
+function linePrices(part: { salePrice: number; cost: number }, salePriceOverride?: number) {
+  const listPrice = part.salePrice;
+  const salePrice = salePriceOverride != null ? salePriceOverride : listPrice;
+  return { listPrice, salePrice, cost: part.cost };
+}
+
+function packedNotes(data: z.infer<typeof createBody>) {
+  return packDocStyle({
+    theme: data.theme || "navy",
+    validDays: data.validDays,
+    intro: data.intro || data.notes || "",
+    notes: data.notes || data.intro || "",
+  });
+}
+
+function decorateOrder<T extends { id: string; notes?: string | null; lines: { cost?: number }[] }>(
+  role: string,
+  order: T
+) {
+  const style = unpackDocStyle(order.notes);
+  return {
+    ...order,
+    notes: style.notes || style.intro || "",
+    style,
+    shareToken: shareTokenFor(order.id),
+    lines: hideCost(role, order.lines),
+    totals: hideMoneyForSales(role, totals(order as never)),
+  };
+}
 
 ordersRouter.post("/", async (req, res) => {
   const body = createBody.safeParse(req.body);
@@ -183,29 +234,33 @@ ordersRouter.post("/", async (req, res) => {
   });
   const partMap = Object.fromEntries(parts.map((p) => [p.id, p]));
 
-  const order = await prisma.order.create({
-    data: {
-      number: await nextNumber(),
-      channel: body.data.channel,
-      customerId: body.data.customerId,
-      salespersonId: req.user!.id,
-      branchId: req.user!.role ? (await prisma.user.findUnique({ where: { id: req.user!.id } }))?.branchId : undefined,
-      dispatchMethod: body.data.dispatchMethod || "SHOP_COLLECT",
-      tracking: body.data.tracking,
-      lpo: body.data.lpo,
-      notes: body.data.notes,
-      lines: {
-        create: body.data.lines.map((l) => ({
-          partId: l.partId,
-          vendorId: l.vendorId,
-          qty: l.qty,
-          salePrice: partMap[l.partId].salePrice,
-          cost: partMap[l.partId].cost,
-        })),
+  const order = await withUniqueNumber(async () =>
+    prisma.order.create({
+      data: {
+        number: await nextNumber(),
+        channel: body.data.channel,
+        customerId: body.data.customerId,
+        salespersonId: req.user!.id,
+        branchId: req.user!.role ? (await prisma.user.findUnique({ where: { id: req.user!.id } }))?.branchId : undefined,
+        dispatchMethod: body.data.dispatchMethod || "SHOP_COLLECT",
+        tracking: body.data.tracking,
+        lpo: body.data.lpo,
+        notes: packedNotes(body.data),
+        lines: {
+          create: body.data.lines.map((l) => {
+            const prices = linePrices(partMap[l.partId], l.salePrice);
+            return {
+              partId: l.partId,
+              vendorId: l.vendorId,
+              qty: l.qty,
+              ...prices,
+            };
+          }),
+        },
       },
-    },
-    include: { lines: true, customer: true },
-  });
+      include: { lines: true, customer: true },
+    })
+  );
   await audit(req, { entity: "Order", entityId: order.id, action: "CREATE", newValue: order });
   await emit("order.created", { id: order.id, number: order.number, channel: order.channel, customerId: order.customerId });
   res.status(201).json(order);
@@ -236,15 +291,17 @@ ordersRouter.patch("/:id", async (req, res) => {
       dispatchMethod: body.data.dispatchMethod || order.dispatchMethod,
       tracking: body.data.tracking,
       lpo: body.data.lpo,
-      notes: body.data.notes,
+      notes: packedNotes(body.data),
       lines: {
-        create: body.data.lines.map((l) => ({
-          partId: l.partId,
-          vendorId: l.vendorId,
-          qty: l.qty,
-          salePrice: partMap[l.partId].salePrice,
-          cost: partMap[l.partId].cost,
-        })),
+        create: body.data.lines.map((l) => {
+          const prices = linePrices(partMap[l.partId], l.salePrice);
+          return {
+            partId: l.partId,
+            vendorId: l.vendorId,
+            qty: l.qty,
+            ...prices,
+          };
+        }),
       },
     },
     include: {
@@ -263,11 +320,217 @@ ordersRouter.patch("/:id", async (req, res) => {
   });
 });
 
-ordersRouter.post("/:id/status", async (req, res) => {
-  const order = await prisma.order.findUnique({
-    where: { id: req.params.id },
-    include: { lines: { include: { part: true } }, payments: true, customer: true },
+type SaleOrder = NonNullable<Awaited<ReturnType<typeof loadSaleOrder>>>;
+
+async function loadSaleOrder(id: string) {
+  return prisma.order.findUnique({
+    where: { id },
+    include: {
+      lines: { include: { part: true } },
+      payments: true,
+      customer: true,
+      invoice: true,
+      statusLogs: { include: { user: { select: { id: true, name: true } } }, orderBy: { createdAt: "asc" } },
+      vehicle: true,
+      driver: { select: { id: true, name: true, phone: true } },
+    },
   });
+}
+
+async function logOrderStatus(orderId: string, status: string, userId: string, notes?: string) {
+  await prisma.orderStatusLog.create({
+    data: { orderId, status, userId, notes: notes?.slice(0, 500) || null },
+  });
+}
+
+function linesFullyPicked(order: SaleOrder) {
+  return order.lines.every((l) => l.pickedQty >= l.qty);
+}
+
+function linesFullyPacked(order: SaleOrder) {
+  return order.lines.every((l) => l.packedQty >= l.qty);
+}
+
+async function convertQuotation(order: SaleOrder, userId: string, role: string) {
+  if (order.status !== "DRAFT") {
+    throw Object.assign(new Error("Only a quotation can be converted to a sales order"), { status: 400 });
+  }
+  if (!order.lines.length) {
+    throw Object.assign(new Error("Add at least one product before converting"), { status: 400 });
+  }
+  const gross = totals(order).gross;
+  await assertCreditAllowed(order.customerId, gross, role);
+  for (const line of order.lines) {
+    if (line.part.qtyOnHand < line.qty) {
+      throw Object.assign(new Error(`Insufficient stock for ${line.part.sku}`), { status: 400 });
+    }
+  }
+  for (const line of order.lines) {
+    await prisma.part.update({
+      where: { id: line.partId },
+      data: { qtyOnHand: { decrement: line.qty } },
+    });
+    await prisma.stockMovement.create({
+      data: {
+        partId: line.partId,
+        type: "SALE",
+        qty: -line.qty,
+        reference: order.number,
+        userId,
+      },
+    });
+  }
+  const invoice = await issueInvoiceForOrder(order.id, { evenIfDraft: true });
+  const invoiceNumber = invoice?.number || order.number;
+  await postSale(
+    { id: order.id, number: invoiceNumber, vatRate: order.vatRate, lines: order.lines },
+    userId
+  );
+  for (const line of order.lines) {
+    if (!line.part.trackSerial) continue;
+    const serials = await prisma.serial.findMany({
+      where: { partId: line.partId, status: "IN_STOCK" },
+      take: line.qty,
+    });
+    for (const s of serials) {
+      await prisma.serial.update({ where: { id: s.id }, data: { status: "SOLD", orderId: order.id } });
+    }
+  }
+  for (const line of order.lines) {
+    const part = await prisma.part.findUnique({ where: { id: line.partId } });
+    if (part && part.qtyOnHand <= part.reorderLevel) {
+      await emit("stock.low", { sku: part.sku, qtyOnHand: part.qtyOnHand, reorderLevel: part.reorderLevel });
+    }
+  }
+  return invoice;
+}
+
+function httpError(res: { status: (n: number) => { json: (b: unknown) => unknown } }, err: unknown) {
+  const status = Number((err as { status?: number })?.status) || 500;
+  const message = err instanceof Error ? err.message : "Could not convert quotation";
+  return res.status(status).json({ error: message });
+}
+
+ordersRouter.post("/:id/convert", async (req, res) => {
+  const order = await loadSaleOrder(req.params.id);
+  if (!order) return res.status(404).json({ error: "Quotation not found" });
+  if (!canAccessOrder(req.user!, order)) return res.status(403).json({ error: "You can only convert your own quotations" });
+  try {
+    const invoice = await convertQuotation(order, req.user!.id, req.user!.role);
+    const updated = await prisma.order.update({
+      where: { id: order.id },
+      data: { status: "CONFIRMED", dispatcherId: req.user!.id },
+      include: { lines: true, payments: true, customer: true, invoice: true },
+    });
+    await logOrderStatus(updated.id, "CONFIRMED", req.user!.id, "Sales order confirmed");
+    await recordActivity(req, {
+      entity: "Invoice",
+      entityId: invoice?.id || order.id,
+      action: "ISSUE",
+      oldValue: { status: "DRAFT" },
+      newValue: { status: "CONFIRMED", invoice: invoice?.number, order: order.number },
+      reason: "Customer accepted quotation",
+      notice: {
+        title: "Invoice issued",
+        body: `${invoice?.number || order.number} confirmed — revenue posted, dispatch can pick.`,
+        url: invoice?.id ? `/finance?section=ar` : `/sales/${order.id}`,
+      },
+      notifyModules: ["finance", "sales", "dispatch"],
+    });
+    await emit("order.status", { id: updated.id, number: updated.number, from: "DRAFT", to: "CONFIRMED" });
+    res.json({ ...updated, invoice: invoice || updated.invoice, totals: totals(updated) });
+  } catch (err) {
+    return httpError(res, err);
+  }
+});
+
+ordersRouter.post("/:id/pick", async (req, res) => {
+  const order = await loadSaleOrder(req.params.id);
+  if (!order) return res.status(404).json({ error: "Order not found" });
+  if (!canModule(req.user!, "dispatch")) return res.status(403).json({ error: "Dispatch access required" });
+  const lines = Array.isArray(req.body.lines) ? req.body.lines : [];
+  for (const row of lines) {
+    const line = order.lines.find((l) => l.id === row.id);
+    if (!line) continue;
+    const pickedQty = Math.min(line.qty, Math.max(0, Number(row.pickedQty) || 0));
+    await prisma.orderLine.update({ where: { id: line.id }, data: { pickedQty } });
+  }
+  const fresh = await loadSaleOrder(order.id);
+  if (!fresh) return res.status(404).json({ error: "Order not found" });
+  res.json(decorateOrder(req.user!.role, fresh));
+});
+
+ordersRouter.post("/:id/pack", async (req, res) => {
+  const order = await loadSaleOrder(req.params.id);
+  if (!order) return res.status(404).json({ error: "Order not found" });
+  if (!canModule(req.user!, "dispatch")) return res.status(403).json({ error: "Dispatch access required" });
+  const lines = Array.isArray(req.body.lines) ? req.body.lines : [];
+  for (const row of lines) {
+    const line = order.lines.find((l) => l.id === row.id);
+    if (!line) continue;
+    const packedQty = Math.min(line.qty, Math.max(0, Number(row.packedQty) || 0));
+    await prisma.orderLine.update({
+      where: { id: line.id },
+      data: {
+        packedQty,
+        batchNo: row.batchNo ? String(row.batchNo).slice(0, 60) : line.batchNo,
+        serialNo: row.serialNo ? String(row.serialNo).slice(0, 60) : line.serialNo,
+      },
+    });
+  }
+  await prisma.order.update({
+    where: { id: order.id },
+    data: {
+      packingBoxes: Number(req.body.packingBoxes) || order.packingBoxes,
+      packingWeight: req.body.packingWeight != null ? Number(req.body.packingWeight) : order.packingWeight,
+      packingNotes: req.body.packingNotes ? String(req.body.packingNotes).slice(0, 500) : order.packingNotes,
+    },
+  });
+  const fresh = await loadSaleOrder(order.id);
+  if (!fresh) return res.status(404).json({ error: "Order not found" });
+  res.json(decorateOrder(req.user!.role, fresh));
+});
+
+ordersRouter.post("/:id/qc", async (req, res) => {
+  const order = await loadSaleOrder(req.params.id);
+  if (!order) return res.status(404).json({ error: "Order not found" });
+  if (!canModule(req.user!, "dispatch")) return res.status(403).json({ error: "Dispatch access required" });
+  const passed = Boolean(req.body.passed);
+  await prisma.order.update({
+    where: { id: order.id },
+    data: {
+      qcPassed: passed,
+      qcNotes: req.body.notes ? String(req.body.notes).slice(0, 500) : null,
+      qcAt: new Date(),
+      qcById: req.user!.id,
+    },
+  });
+  const fresh = await loadSaleOrder(order.id);
+  if (!fresh) return res.status(404).json({ error: "Order not found" });
+  res.json(decorateOrder(req.user!.role, fresh));
+});
+
+ordersRouter.post("/:id/pod", async (req, res) => {
+  const order = await loadSaleOrder(req.params.id);
+  if (!order) return res.status(404).json({ error: "Order not found" });
+  if (!canModule(req.user!, "dispatch")) return res.status(403).json({ error: "Dispatch access required" });
+  await prisma.order.update({
+    where: { id: order.id },
+    data: {
+      podReceiver: req.body.receiver ? String(req.body.receiver).slice(0, 120) : null,
+      podPhone: req.body.phone ? String(req.body.phone).slice(0, 30) : null,
+      podGps: req.body.gps ? String(req.body.gps).slice(0, 120) : null,
+      podOtp: req.body.otp ? String(req.body.otp).slice(0, 12) : null,
+      podAt: new Date(),
+    },
+  });
+  const fresh = await loadSaleOrder(order.id);
+  if (!fresh) return res.status(404).json({ error: "Order not found" });
+  res.json(decorateOrder(req.user!.role, fresh));
+});
+
+ordersRouter.post("/:id/status", async (req, res) => {
+  const order = await loadSaleOrder(req.params.id);
   if (!order) return res.status(404).json({ error: "Order not found" });
   if (!canAccessOrder(req.user!, order)) return res.status(403).json({ error: "You can only update your own orders" });
   const next = String(req.body.status);
@@ -275,87 +538,120 @@ ordersRouter.post("/:id/status", async (req, res) => {
   if (next === "PAID") {
     return res.status(400).json({ error: "Paid is recorded on the invoice in Finance, not on the sales order" });
   }
+  if (isDispatchStep(next) || isDispatchStep(order.status)) {
+    const acl = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { role: true, modules: true } });
+    if (!canModule(acl || req.user!, "dispatch")) {
+      return res.status(403).json({ error: "Pick, pack, dispatch, and delivery are done in Dispatch" });
+    }
+  }
+  if (order.status !== next && isDispatchStep(order.status) && isDispatchStep(next) && !canDispatchTransition(order.status, next)) {
+    return res.status(400).json({ error: `Cannot move from ${order.status} to ${next}` });
+  }
+  if (next === "PACKING" && !linesFullyPicked(order)) {
+    return res.status(400).json({ error: "Pick all items before packing" });
+  }
+  if (next === "PICKED" && order.status === "PACKING" && (!linesFullyPacked(order) || order.qcPassed !== true)) {
+    return res.status(400).json({ error: "Complete packing and pass quality check first" });
+  }
+  if (next === "PICKED" && order.status === "PICKING" && !linesFullyPicked(order)) {
+    return res.status(400).json({ error: "Pick all items first" });
+  }
+  if (next === "DISPATCHED") {
+    for (const line of order.lines) {
+      await prisma.orderLine.update({
+        where: { id: line.id },
+        data: { dispatchedQty: line.packedQty || line.pickedQty || line.qty },
+      });
+    }
+  }
+  if (next === "DELIVERED") {
+    for (const line of order.lines) {
+      await prisma.orderLine.update({
+        where: { id: line.id },
+        data: { deliveredQty: line.dispatchedQty || line.packedQty || line.qty },
+      });
+    }
+  }
 
   if (next === "CANCELLED" && order.status !== "DRAFT") {
-    if (!canBypassApproval(req.user!.role)) {
-      const approval = await prisma.approval.create({
-        data: {
-          type: "CANCEL_ORDER",
-          entity: "Order",
-          entityId: order.id,
-          oldValue: JSON.stringify({ status: order.status }),
-          newValue: JSON.stringify({ status: "CANCELLED" }),
-          reason: reason || "Cancel confirmed order",
-          requesterId: req.user!.id,
-        },
-      });
-      await emit("approval.requested", approval);
-      return res.status(202).json({ pending: true, approval });
-    }
+    if (await queueApproval(req, res, {
+      type: "CANCEL_ORDER",
+      entity: "Order",
+      entityId: order.id,
+      oldValue: { status: order.status },
+      newValue: { status: "CANCELLED" },
+      reason: reason || "Cancel confirmed order",
+    })) return;
     await restoreStock(order);
     await reverseSource("SALE", order.id, req.user!.id);
   }
 
   if (next === "CONFIRMED" && order.status === "DRAFT") {
-    for (const line of order.lines) {
-      if (line.part.qtyOnHand < line.qty) {
-        return res.status(400).json({ error: `Insufficient stock for ${line.part.sku}` });
-      }
+    try {
+      await convertQuotation(order, req.user!.id, req.user!.role);
+    } catch (err) {
+      return httpError(res, err);
     }
-    for (const line of order.lines) {
-      await prisma.part.update({
-        where: { id: line.partId },
-        data: { qtyOnHand: { decrement: line.qty } },
-      });
-      await prisma.stockMovement.create({
-        data: {
-          partId: line.partId,
-          type: "SALE",
-          qty: -line.qty,
-          reference: order.number,
-          userId: req.user!.id,
-        },
-      });
-    }
-    const invoice = await issueInvoiceForOrder(order.id, { evenIfDraft: true });
-    const invoiceNumber = invoice?.number || order.number;
-    await postSale(
-      { id: order.id, number: invoiceNumber, vatRate: order.vatRate, lines: order.lines },
-      req.user!.id
-    );
-    for (const line of order.lines) {
-      if (!line.part.trackSerial) continue;
-      const serials = await prisma.serial.findMany({
-        where: { partId: line.partId, status: "IN_STOCK" },
-        take: line.qty,
-      });
-      for (const s of serials) {
-        await prisma.serial.update({ where: { id: s.id }, data: { status: "SOLD", orderId: order.id } });
-      }
-    }
-    for (const line of order.lines) {
-      const part = await prisma.part.findUnique({ where: { id: line.partId } });
-      if (part && part.qtyOnHand <= part.reorderLevel) {
-        await emit("stock.low", { sku: part.sku, qtyOnHand: part.qtyOnHand, reorderLevel: part.reorderLevel });
-      }
-    }
+  }
+
+  const dispatchMethod = req.body.dispatchMethod ? String(req.body.dispatchMethod) : order.dispatchMethod;
+  if (req.body.dispatchMethod && !DISPATCH_METHODS.includes(dispatchMethod as typeof DISPATCH_METHODS[number])) {
+    return res.status(400).json({ error: "Invalid delivery method" });
+  }
+  const priority = req.body.priority ? String(req.body.priority) : order.priority;
+  if (req.body.priority && !DISPATCH_PRIORITIES.includes(priority as typeof DISPATCH_PRIORITIES[number])) {
+    return res.status(400).json({ error: "Invalid priority" });
   }
 
   const updated = await prisma.order.update({
     where: { id: order.id },
-    data: { status: next, tracking: req.body.tracking ?? order.tracking },
-    include: { lines: true, payments: true, customer: true },
+    data: {
+      status: next,
+      tracking: req.body.tracking ?? order.tracking,
+      dispatchMethod,
+      priority,
+      expectedDelivery: req.body.expectedDelivery ? new Date(req.body.expectedDelivery) : order.expectedDelivery,
+      dispatcherId: req.body.dispatcherId || order.dispatcherId || req.user!.id,
+      driverId: req.body.driverId ?? order.driverId,
+      vehicleId: req.body.vehicleId ?? order.vehicleId,
+      failureReason: next === "FAILED" ? (reason || order.failureReason) : order.failureReason,
+      returnReason: next === "RETURNED" ? (reason || order.returnReason) : order.returnReason,
+    },
+    include: { lines: { include: { part: true } }, payments: true, customer: true, statusLogs: true },
   });
-  await audit(req, {
-    entity: "Order",
-    entityId: order.id,
-    action: "STATUS",
-    oldValue: { status: order.status },
-    newValue: { status: next },
-    reason,
-  });
+  if (order.status !== next) {
+    await logOrderStatus(order.id, next, req.user!.id, reason || undefined);
+  }
+  if (next === "DISPATCHED" || next === "DELIVERED") {
+    await recordActivity(req, {
+      entity: "Order",
+      entityId: order.id,
+      action: next === "DELIVERED" ? "DELIVERED" : "DISPATCHED",
+      oldValue: { status: order.status },
+      newValue: { status: next, number: updated.number, tracking: updated.tracking },
+      reason,
+      notice: {
+        title: next === "DELIVERED" ? "Delivery complete" : "Order dispatched",
+        body:
+          next === "DELIVERED"
+            ? `${updated.number} delivered — collect payment in Finance if still open.`
+            : `${updated.number} is on the way${updated.tracking ? ` · ${updated.tracking}` : ""}`,
+        url: next === "DELIVERED" ? `/finance?section=ar` : `/dispatch/${updated.id}`,
+      },
+      notifyModules: next === "DELIVERED" ? ["finance", "sales", "dispatch"] : ["sales", "dispatch"],
+    });
+  } else {
+    await audit(req, {
+      entity: "Order",
+      entityId: order.id,
+      action: "STATUS",
+      oldValue: { status: order.status },
+      newValue: { status: next },
+      reason,
+    });
+  }
   await emit("order.status", { id: updated.id, number: updated.number, from: order.status, to: next });
-  res.json({ ...updated, totals: totals(updated) });
+  res.json(decorateOrder(req.user!.role, { ...updated, totals: totals(updated) }));
 });
 
 ordersRouter.post("/:id/payments", moduleAccess("finance"), async (req, res) => {
@@ -379,7 +675,18 @@ ordersRouter.post("/:id/payments", moduleAccess("finance"), async (req, res) => 
   const docNo = order.invoice?.number || order.invoiceNumber || order.number;
   await postPayment({ orderId: order.id, number: docNo, method, amount, userId: req.user!.id });
   await refreshInvoiceStatus(order.id);
-  await audit(req, { entity: "Payment", entityId: pay.id, action: "CREATE", newValue: pay });
+  await recordActivity(req, {
+    entity: "Payment",
+    entityId: pay.id,
+    action: "CREATE",
+    newValue: pay,
+    notice: {
+      title: "Payment received",
+      body: `KES ${Math.round(amount).toLocaleString("en-KE")} on ${docNo} (${method}).`,
+      url: `/sales/${order.id}`,
+    },
+    notifyModules: ["finance", "sales"],
+  });
   await emit("payment.recorded", { orderId: order.id, number: order.number, payment: pay, automated: false });
   res.status(201).json(pay);
 });
@@ -392,68 +699,50 @@ ordersRouter.post("/:id/returns", async (req, res) => {
   if (!order) return res.status(404).json({ error: "Order not found" });
   if (!canAccessOrder(req.user!, order)) return res.status(403).json({ error: "You can only return your own orders" });
   if (["DRAFT", "CANCELLED"].includes(order.status)) return res.status(400).json({ error: "This order cannot be returned" });
-  const incoming = z.object({
-    reason: z.string().min(1),
-    lines: z.array(z.object({ lineId: z.string(), qty: z.number().positive() })).min(1),
-  }).safeParse(req.body);
+  const incoming = parseReturnBody(req.body);
   if (!incoming.success) return res.status(400).json({ error: incoming.error.flatten() });
-
-  const prior = await prisma.salesReturnLine.findMany({
-    where: { ret: { orderId: order.id } },
-  });
-  const returned: Record<string, number> = {};
-  for (const r of prior) returned[r.partId] = (returned[r.partId] || 0) + r.qty;
-
-  const createLines: { partId: string; qty: number; salePrice: number; cost: number }[] = [];
-  for (const item of incoming.data.lines) {
-    const line = order.lines.find((l) => l.id === item.lineId);
-    if (!line) return res.status(400).json({ error: "Line not found" });
-    const already = returned[line.partId] || 0;
-    if (already + item.qty > line.qty + 0.0001) {
-      return res.status(400).json({ error: `Cannot return more than sold of ${line.part.sku}` });
-    }
-    createLines.push({ partId: line.partId, qty: item.qty, salePrice: line.salePrice, cost: line.cost });
+  if (await queueApproval(req, res, {
+    type: "SALES_RETURN",
+    entity: "Order",
+    entityId: order.id,
+    oldValue: { number: order.number, status: order.status },
+    newValue: incoming.data,
+    reason: incoming.data.reason,
+  })) return;
+  try {
+    const ret = await executeSalesReturn(order.id, req.user!.id, incoming.data);
+    await audit(req, { entity: "SalesReturn", entityId: ret.id, action: "CREATE", newValue: { number: ret.number, order: order.number } });
+    res.status(201).json(ret);
+  } catch (err) {
+    const status = Number((err as { status?: number }).status) || 400;
+    return res.status(status).json({ error: err instanceof Error ? err.message : "Return failed" });
   }
-
-  const ret = await prisma.salesReturn.create({
-    data: {
-      number: await nextReturnNumber(),
-      orderId: order.id,
-      customerId: order.customerId,
-      reason: incoming.data.reason,
-      createdById: req.user!.id,
-      lines: { create: createLines },
-    },
-    include: { lines: { include: { part: true } } },
-  });
-  for (const line of createLines) {
-    await prisma.part.update({ where: { id: line.partId }, data: { qtyOnHand: { increment: line.qty } } });
-    await prisma.stockMovement.create({
-      data: { partId: line.partId, type: "RETURN", qty: line.qty, reference: ret.number, reason: incoming.data.reason, userId: req.user!.id },
-    });
-    const sold = await prisma.serial.findMany({ where: { partId: line.partId, orderId: order.id, status: "SOLD" }, take: line.qty });
-    for (const s of sold) await prisma.serial.update({ where: { id: s.id }, data: { status: "RETURNED", orderId: null } });
-  }
-  await postSaleReturn({ id: ret.id, number: ret.number, vatRate: order.vatRate, lines: createLines, userId: req.user!.id });
-  const credit = createLines.reduce((s, l) => s + l.qty * l.salePrice, 0) * (1 + order.vatRate);
-  await prisma.payment.create({
-    data: { orderId: order.id, method: "CREDIT_NOTE", amount: Math.round(credit * 100) / 100, reference: ret.number, userId: req.user!.id },
-  });
-  await refreshInvoiceStatus(order.id);
-  await audit(req, { entity: "SalesReturn", entityId: ret.id, action: "CREATE", newValue: { number: ret.number, order: order.number } });
-  res.status(201).json(ret);
 });
 
 function totals(order: {
   vatRate: number;
-  lines: { qty: number; salePrice: number; cost: number }[];
+  lines: { qty: number; salePrice: number; listPrice?: number; cost: number }[];
   payments: { amount: number }[];
+  invoice?: { markupTotal?: number; markupCommission?: number; commissionRate?: number } | null;
 }) {
   const net = order.lines.reduce((s, l) => s + l.qty * l.salePrice, 0);
   const vat = Math.round(net * order.vatRate * 100) / 100;
   const cost = order.lines.reduce((s, l) => s + l.qty * l.cost, 0);
   const paid = order.payments.reduce((s, p) => s + p.amount, 0);
-  return { net, vat, gross: net + vat, cost, profit: net - cost, paid, balance: net + vat - paid };
+  const markup = order.invoice?.markupTotal ?? markupTotal(order.lines);
+  const markupCommission = order.invoice?.markupCommission;
+  return {
+    net,
+    vat,
+    gross: net + vat,
+    cost,
+    profit: net - cost,
+    paid,
+    balance: net + vat - paid,
+    markupTotal: markup,
+    markupCommission,
+    commissionRate: order.invoice?.commissionRate,
+  };
 }
 
 async function restoreStock(order: { number: string; lines: { partId: string; qty: number }[] }) {

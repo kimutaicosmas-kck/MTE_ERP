@@ -7,4 +7,6 @@ dist
 apps/api/prisma/dev.db
 apps/api/uploads
 apps/web/dist
+apps/web/test-results
+apps/web/playwright-report
 .DS_Store

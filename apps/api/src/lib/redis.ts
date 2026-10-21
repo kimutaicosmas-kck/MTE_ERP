@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import Redis from "ioredis";
 
 const url = process.env.REDIS_URL || "";
-export const SESSION_TTL = 12 * 60 * 60;
+export const SESSION_TTL = 15 * 60;
 
 let client: Redis | null = null;
 let ready = false;

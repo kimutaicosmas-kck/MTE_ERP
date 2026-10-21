@@ -31,7 +31,7 @@ const WRITE_TAGS: { test: RegExp; tags: string[] }[] = [
   { test: /^\/api\/payroll/, tags: ["users"] },
 ];
 
-const SKIP = /\/(pdf|backup|callback|webhooks|login|password|avatar|logout)/i;
+const SKIP = /\/(pdf|backup|callback|webhooks|login|password|avatar|logout|events\/stream)/i;
 
 function fullPath(req: Request) {
   const raw = `${req.baseUrl || ""}${req.path || ""}` || req.originalUrl.split("?")[0];

@@ -32,10 +32,16 @@ export function useIdleTimeout() {
       if (document.visibilityState === "visible") tick();
     };
     document.addEventListener("visibilitychange", onVis);
+    const onExpired = () => {
+      logout();
+      nav("/login", { replace: true, state: { idle: true } });
+    };
+    window.addEventListener("mte-session-expired", onExpired);
     return () => {
       events.forEach((e) => window.removeEventListener(e, bump));
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("mte-session-expired", onExpired);
     };
   }, [user, logout, nav]);
 }

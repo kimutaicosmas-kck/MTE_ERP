@@ -3,7 +3,9 @@ import PDFDocument from "pdfkit";
 const BLACK = "#111111";
 const GRAY = "#555555";
 const RULE = "#222222";
-const NAVY = "#0B3A4A";
+const NAVY = "#0B1F36";
+const NAVY_DARK = "#1E3A5F";
+const GOLD = "#F59A1A";
 const RED = "#C0392B";
 const LEFT = 40;
 const RIGHT = 555;
@@ -23,6 +25,8 @@ export type OrderPdfInput = {
   tracking?: string | null;
   notes?: string | null;
   vatRate?: number;
+  theme?: string;
+  validDays?: number;
   customer: { name: string; phone?: string | null; kraPin?: string | null };
   salesperson?: { name: string } | null;
   company?: {
@@ -58,6 +62,10 @@ export function moneyPlain(n: number) {
   return Math.round(n).toLocaleString("en-KE");
 }
 
+function moneyPlain2(n: number) {
+  return Number(n || 0).toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 export function deliveryNumber(source?: string | null) {
   if (!source) return "";
   const m = source.match(/(\d{4})-(\d+)$/);
@@ -65,29 +73,36 @@ export function deliveryNumber(source?: string | null) {
   return source.replace(/^(SO|INV|ORD)-/i, "DN-");
 }
 
+function paletteFor(kind: OrderPdfKind, status: string) {
+  if (kind === "delivery") return { ink: NAVY, dark: NAVY_DARK, label: "DELIVERY NOTE" };
+  if (kind === "sale") return { ink: NAVY, dark: NAVY_DARK, label: "INVOICE" };
+  if (status === "DRAFT") return { ink: NAVY, dark: NAVY_DARK, label: "QUOTATION" };
+  return { ink: NAVY, dark: NAVY_DARK, label: "SALES ORDER" };
+}
+
+function statusLabel(status: string) {
+  if (status === "DRAFT") return "Draft";
+  if (status === "CONFIRMED") return "Confirmed";
+  if (status === "PICKED") return "Packed";
+  if (status === "DISPATCHED") return "Dispatched";
+  if (status === "DELIVERED") return "Delivered";
+  return status.replace(/_/g, " ");
+}
+
 export function buildOrderPdf(data: OrderPdfInput): Promise<Buffer> {
   const title = documentTitle(data.kind, data.status);
   const priced = data.kind !== "delivery";
   const company = data.company || {};
-  const companyName = (company.legalName || company.name || "MTE ERP").toUpperCase();
+  const companyName = company.legalName || company.name || "MTE ERP";
+  const pal = paletteFor(data.kind, data.status);
   const vatPct = Math.round((data.vatRate ?? 0.16) * 100);
   const date = formatDocDate(data.createdAt);
-  const badge = data.kind === "sale" ? ["INVOICE"] : data.kind === "delivery" ? ["DELIVERY"] : data.status === "DRAFT" ? ["QUOTATION"] : ["SALES", "ORDER"];
-  const intro =
-    data.kind === "order"
-      ? data.status === "DRAFT"
-        ? "Please quote / confirm the following goods"
-        : "Please supply / confirm the following goods"
-      : "Please receive the following goods in good order and condition";
-  const closing =
-    data.kind === "order"
-      ? "Order confirmed subject to stock and company terms."
-      : "Please receive the following goods in good order and condition.";
+  const valid = data.validDays ? formatDocDate(new Date(new Date(data.createdAt).getTime() + data.validDays * 86400000)) : "—";
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       size: "A4",
-      margins: { top: 36, bottom: 36, left: 40, right: 40 },
+      margins: { top: 36, bottom: 40, left: 40, right: 40 },
       bufferPages: false,
       autoFirstPage: true,
       info: { Title: `${title} ${data.number}`, Author: companyName },
@@ -97,169 +112,152 @@ export function buildOrderPdf(data: OrderPdfInput): Promise<Buffer> {
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    let y = 40;
-    doc.circle(LEFT + 16, y + 16, 16).fill(NAVY);
-    put(doc, initials(companyName), LEFT, y + 10, { size: 8, bold: true, color: "#FFFFFF", width: 32, align: "center" });
-    put(doc, companyName, LEFT + 42, y + 4, { size: 13, bold: true, color: NAVY, width: 320 });
-    const contact = [
-      company.phone ? `Tel: ${company.phone}` : null,
-      company.email ? `Email: ${company.email}` : null,
-    ].filter(Boolean).join("  |  ");
-    if (contact) put(doc, contact, LEFT + 42, y + 22, { size: 8, color: GRAY, width: 320 });
+    let y = 36;
+    doc.circle(LEFT + 14, y + 14, 14).fill(NAVY);
+    doc.circle(LEFT + 14, y + 14, 14).lineWidth(1.2).strokeColor(GOLD).stroke();
+    put(doc, initials(companyName), LEFT, y + 8, { size: 7, bold: true, color: "#FFFFFF", width: 28, align: "center" });
+    put(doc, companyName.toUpperCase(), LEFT + 34, y + 2, { size: 12, bold: true, color: NAVY, width: 300 });
+    const contact = [company.phone ? `Tel: ${company.phone}` : null, company.email ? `Email: ${company.email}` : null].filter(Boolean).join(" | ");
+    if (contact) put(doc, contact, LEFT + 34, y + 18, { size: 7.5, color: NAVY_DARK, width: 300 });
+    doc.rect(RIGHT - 128, y, 128, 28).fill(NAVY);
+    put(doc, pal.label, RIGHT - 128, y + 9, { size: 10, bold: true, color: "#FFFFFF", width: 128, align: "center" });
+    y += 38;
 
-    doc.roundedRect(RIGHT - 132, y, 132, 34, 2).fill(NAVY);
-    if (badge.length === 1) {
-      put(doc, badge[0], RIGHT - 132, y + 11, { size: 11, bold: true, color: "#FFFFFF", width: 132, align: "center" });
-    } else {
-      put(doc, badge[0], RIGHT - 132, y + 5, { size: 10, bold: true, color: "#FFFFFF", width: 132, align: "center" });
-      put(doc, badge[1], RIGHT - 132, y + 18, { size: 10, bold: true, color: "#FFFFFF", width: 132, align: "center" });
+    if (company.mpesaPaybill || company.mpesaAccount) {
+      put(doc, "LIPA NA MPESA", LEFT, y, { size: 8, bold: true, color: NAVY_DARK, width: WIDTH });
+      y += 11;
+      put(doc, `PAYBILL NUMBER: ${company.mpesaPaybill || "—"}`, LEFT, y, { size: 8, bold: true, color: NAVY_DARK, width: WIDTH });
+      y += 10;
+      put(doc, `ACC. NO: ${company.mpesaAccount || "—"}`, LEFT, y, { size: 8, bold: true, color: NAVY_DARK, width: WIDTH });
+      y += 10;
+      put(doc, `B/S NAME: ${companyName}`, LEFT, y, { size: 8, bold: true, color: NAVY_DARK, width: WIDTH });
+      y += 14;
     }
-    y += 52;
 
-    put(doc, "LIPA NA MPESA", LEFT, y, { size: 9, bold: true, color: NAVY });
-    y += 13;
-    put(doc, `PAYBILL NUMBER: ${company.mpesaPaybill || "—"}`, LEFT, y, { size: 9 });
-    y += 12;
-    put(doc, `ACC. NO: ${company.mpesaAccount || "—"}`, LEFT, y, { size: 9 });
-    y += 12;
-    put(doc, `B/S NAME: ${companyName}`, LEFT, y, { size: 9 });
-    y += 22;
-
-    put(doc, "M/s", LEFT, y, { size: 10 });
-    put(doc, data.customer.name || "—", LEFT + 28, y, { size: 10, bold: true, width: 250 });
-    underline(doc, LEFT + 28, y + 12, 250);
-
-    const meta = data.kind === "sale"
-      ? [
-          ["Date", date],
-          ["Invoice No.", data.number],
-          ["Order / LPO", data.lpo || data.orderNumber || "—"],
-        ]
-      : data.kind === "delivery"
+    const meta =
+      data.kind === "sale"
         ? [
             ["Date", date],
-            ["Delivery No.", data.number],
-            ["Order No.", data.orderNumber || "—"],
+            ["Invoice No.", data.number],
+            ["Order / LPO", data.lpo || data.orderNumber || "—"],
           ]
-        : [
-            ["Date", date],
-            ["Order No.", data.number],
-            ["LPO", data.lpo || "—"],
-          ];
+        : data.kind === "delivery"
+          ? [
+              ["Date", date],
+              ["Order No.", data.orderNumber || data.number],
+              ["Dispatch", (data.dispatchMethod || "SHOP_COLLECT").replace("_", " ")],
+            ]
+          : data.status === "DRAFT"
+            ? [
+                ["Date", date],
+                ["Quote No.", data.number],
+                ["Valid until", valid],
+              ]
+            : [
+                ["Date", date],
+                ["Order No.", data.number],
+                ["L.P.O.", data.lpo || "—"],
+              ];
+
+    put(doc, "From", LEFT, y, { size: 8, bold: true, color: NAVY_DARK, width: 60 });
+    put(doc, companyName, LEFT, y + 12, { size: 9, bold: true, width: 280 });
+    put(doc, "Dealers in heavy machinery, earth-moving equipment, lubricants, filters & genuine spare parts.", LEFT, y + 24, {
+      size: 7,
+      color: GRAY,
+      width: 280,
+    });
+    put(doc, "To", LEFT, y + 44, { size: 8, bold: true, color: NAVY_DARK, width: 60 });
+    put(doc, data.customer.name || "—", LEFT, y + 56, { size: 9, bold: true, width: 280 });
+    if (data.customer.phone) put(doc, data.customer.phone, LEFT, y + 68, { size: 8, color: GRAY, width: 280 });
+
     let my = y;
     meta.forEach(([label, value]) => {
-      put(doc, label, 340, my, { size: 9, width: 80 });
-      put(doc, value, 430, my, { size: 9, width: 125 });
-      underline(doc, 430, my + 11, 125);
+      put(doc, label, 350, my, { size: 8, bold: true, color: NAVY_DARK, width: 90 });
+      put(doc, value, 445, my, { size: 8, bold: true, width: 110, align: "right" });
+      underline(doc, 350, my + 11, 205);
       my += 16;
     });
-    y += 16;
-    underline(doc, LEFT + 28, y + 12, 250);
-    y = Math.max(y + 28, my + 8);
+    y = Math.max(y + 82, my) + 8;
 
-    put(doc, intro, LEFT, y, { size: 9, color: GRAY, width: WIDTH });
+    const itemsTitle =
+      data.kind === "sale" ? "Invoice Items" : data.kind === "delivery" ? "Delivery Items" : data.status === "DRAFT" ? "Quotation Items" : "Sales Order Items";
+    put(doc, itemsTitle, LEFT, y, { size: 9, bold: true, color: NAVY_DARK, width: WIDTH });
+    doc.moveTo(LEFT, y + 12).lineTo(LEFT + 120, y + 12).strokeColor(NAVY_DARK).lineWidth(0.6).stroke();
     y += 18;
 
-    const qtyW = 54;
-    const priceW = priced ? 88 : 0;
-    const amountW = priced ? 88 : 0;
-    const descW = WIDTH - qtyW - priceW - amountW;
     const cols = priced
       ? [
-          { key: "qty", label: "Qty", x: LEFT, w: qtyW, align: "center" as const },
-          { key: "name", label: "Description", x: LEFT + qtyW, w: descW, align: "left" as const },
-          { key: "price", label: "Unit Price", x: LEFT + qtyW + descW, w: priceW, align: "right" as const },
-          { key: "line", label: "Amount", x: LEFT + qtyW + descW + priceW, w: amountW, align: "right" as const },
+          { key: "n", label: "No", x: LEFT, w: 28, align: "left" as const },
+          { key: "name", label: "Item", x: LEFT + 28, w: 243, align: "left" as const },
+          { key: "qty", label: "Qty", x: LEFT + 271, w: 48, align: "right" as const },
+          { key: "price", label: "Rate", x: LEFT + 319, w: 96, align: "right" as const },
+          { key: "line", label: "Amount", x: LEFT + 415, w: 100, align: "right" as const },
         ]
       : [
-          { key: "qty", label: "Qty", x: LEFT, w: qtyW, align: "center" as const },
-          { key: "name", label: "Description", x: LEFT + qtyW, w: descW, align: "left" as const },
+          { key: "n", label: "No", x: LEFT, w: 28, align: "left" as const },
+          { key: "name", label: "Item", x: LEFT + 28, w: 387, align: "left" as const },
+          { key: "qty", label: "Qty", x: LEFT + 415, w: 100, align: "right" as const },
         ];
-
-    const rowH = 18;
-    const minRows = data.kind === "delivery" ? 10 : 4;
-    const rows = [...data.lines];
-    while (rows.length < minRows && y + (rows.length + 2) * rowH < 620) rows.push({ sku: "", name: "", bin: "", qty: 0, price: 0 } as OrderPdfInput["lines"][number]);
-
-    headerRow(doc, y, cols, rowH);
-    y += rowH;
-    rows.forEach((line) => {
-      const blank = !line.sku && !line.name && !line.qty;
+    headerRow(doc, y, cols, 18, NAVY);
+    y += 18;
+    data.lines.forEach((line, i) => {
       const values: Record<string, string> = {
-        qty: blank ? "" : String(line.qty || ""),
-        name: blank ? "" : [line.sku, line.name].filter(Boolean).join("  "),
-        price: blank ? "" : moneyPlain(line.price),
-        line: blank ? "" : moneyPlain(line.qty * line.price),
+        n: String(i + 1),
+        name: [line.sku, line.name].filter(Boolean).join(" "),
+        qty: moneyPlain2(line.qty),
+        price: priced ? moneyPlain2(line.price) : "",
+        line: priced ? moneyPlain2(line.qty * line.price) : "",
       };
-      bodyRow(doc, y, cols, rowH, values);
-      y += rowH;
+      bodyRow(doc, y, cols, 20, values);
+      y += 20;
     });
+    put(doc, "E.& O.E", LEFT + 4, y + 4, { size: 8, bold: true, color: NAVY_DARK, width: 80 });
+    put(doc, `No. ${data.number}`, LEFT, y + 4, { size: 9, bold: true, color: RED, width: WIDTH, align: "center" });
+    y += 22;
 
-    const eoe = [
-      { key: "qty", label: "E. & O.E", x: LEFT, w: qtyW, align: "center" as const },
-      { key: "name", label: `No. ${data.number}`, x: LEFT + qtyW, w: descW, align: "center" as const },
-      ...(priced
-        ? [
-            { key: "price", label: "", x: LEFT + qtyW + descW, w: priceW, align: "right" as const },
-            { key: "line", label: "", x: LEFT + qtyW + descW + priceW, w: amountW, align: "right" as const },
-          ]
-        : []),
-    ];
-    bodyRow(doc, y, eoe, rowH, {
-      qty: "E. & O.E",
-      name: `No. ${data.number}`,
-      price: "",
-      line: "",
-    }, { nameColor: RED });
-    y += rowH + 14;
+    const prepared = data.salesperson?.name || companyName;
+    put(doc, "Prepared By:", LEFT, y, { size: 8, bold: true, color: NAVY_DARK, width: 80 });
+    put(doc, prepared, LEFT + 72, y, { size: 8, bold: true, width: 180 });
+    put(doc, "Authorized By:", LEFT, y + 14, { size: 8, bold: true, color: NAVY_DARK, width: 80 });
+    put(doc, prepared, LEFT + 72, y + 14, { size: 8, bold: true, width: 180 });
 
     if (priced) {
-      const vatLabel = `VAT (${vatPct}%)`;
-      const rowsTot =
-        data.kind === "sale"
-          ? [
-              ["Subtotal", moneyKes(data.totals.net)],
-              [vatLabel, moneyKes(data.totals.vat)],
-              ["Total", moneyKes(data.totals.gross)],
-              ["Paid", moneyKes(data.totals.paid)],
-              ["Balance due", moneyKes(data.totals.balance)],
-            ]
-          : [
-              ["Subtotal", moneyKes(data.totals.net)],
-              [vatLabel, moneyKes(data.totals.vat)],
-              ["Total", moneyKes(data.totals.gross)],
-            ];
-      rowsTot.forEach(([label, value], i) => {
-        const last = label === "Total";
-        put(doc, label, 340, y, { size: last ? 11 : 9, bold: last, width: 100, align: "right" });
-        put(doc, value, 445, y, { size: last ? 11 : 9, bold: last, width: 110, align: "right" });
-        y += last ? 16 : 13;
+      const net = data.totals.net;
+      const vat = data.totals.vat;
+      const gross = data.totals.gross;
+      let ty = y;
+      const totRows: [string, string][] = [
+        ["Total Amount:", moneyKes(net)],
+        ["Less Discount:", "0.00 % | KES 0.00"],
+        ["After Discount:", moneyKes(net)],
+        ["VAT Inclusive:", moneyKes(vat)],
+        ["Amount Payable:", moneyKes(gross)],
+      ];
+      if (data.kind === "sale") {
+        totRows.push(["Paid:", moneyKes(data.totals.paid)], ["Balance Due:", moneyKes(data.totals.balance)]);
+      }
+      totRows.forEach(([label, value]) => {
+        const payable = label.startsWith("Amount Payable") || label.startsWith("Balance Due");
+        put(doc, label, 330, ty, { size: 8, bold: true, color: payable ? NAVY : NAVY_DARK, width: 110, align: "right" });
+        put(doc, value, 445, ty, { size: payable ? 9 : 8, bold: true, width: 110, align: "right" });
+        ty += payable ? 16 : 13;
       });
-      y += 6;
-    }
-
-    put(doc, closing, LEFT, y, { size: 9, color: GRAY, width: WIDTH, align: "center" });
-    y += 28;
-
-    if (data.kind === "order") {
-      signLine(doc, LEFT, y, "Prepared by", "");
-      signLine(doc, 320, y, "Sign", "");
-      y += 28;
-      signLine(doc, LEFT, y, "Accepted by", "");
-      signLine(doc, 320, y, "Sign", "");
-    } else if (data.kind === "delivery") {
-      signLine(doc, LEFT, y, "Dispatched by", data.salesperson?.name || "");
-      signLine(doc, 320, y, "Sign", "");
-      y += 28;
-      signLine(doc, LEFT, y, "Received by", "");
-      signLine(doc, 320, y, "Sign", "");
+      y = Math.max(y + 30, ty);
     } else {
-      signLine(doc, LEFT, y, "Confirmed by", "");
-      signLine(doc, 320, y, "Sign", "");
-      y += 28;
-      signLine(doc, LEFT, y, "Received by", "");
-      signLine(doc, 320, y, "Sign", "");
+      y += 34;
     }
+
+    put(doc, "Terms and Conditions", LEFT, y, { size: 9, bold: true, color: NAVY_DARK, width: WIDTH });
+    y += 12;
+    const terms =
+      data.kind === "sale"
+        ? "Payment due on receipt unless credit terms apply. Use invoice number as payment reference."
+        : data.status === "DRAFT"
+          ? data.notes?.trim() || `Prices valid until ${valid} unless withdrawn earlier.`
+          : "Goods remain company property until paid in full. Report shortages on the day of receipt.";
+    put(doc, terms, LEFT, y, { size: 8, color: GRAY, width: WIDTH });
+    y += 20;
+    rule(doc, y);
 
     doc.end();
   });
@@ -511,11 +509,11 @@ function headerRow(
   doc: PDFKit.PDFDocument,
   y: number,
   cols: { x: number; w: number; label: string; align: "left" | "right" | "center" }[],
-  h: number
+  h: number,
+  fill = NAVY
 ) {
-  doc.rect(LEFT, y, WIDTH, h).fill(NAVY);
+  doc.rect(LEFT, y, WIDTH, h).fill(fill);
   cols.forEach((c) => {
-    doc.rect(c.x, y, c.w, h).strokeColor("#08303C").lineWidth(0.4).stroke();
     put(doc, c.label, c.x + 4, y + 5, { size: 8, bold: true, color: "#FFFFFF", width: c.w - 8, align: c.align });
   });
 }
@@ -529,7 +527,7 @@ function bodyRow(
   tone: { nameColor?: string } = {}
 ) {
   cols.forEach((c) => {
-    doc.rect(c.x, y, c.w, h).strokeColor("#222222").lineWidth(0.5).stroke();
+    doc.moveTo(LEFT, y + h).lineTo(RIGHT, y + h).strokeColor("#F3F4F6").lineWidth(0.6).stroke();
     put(doc, values[c.key] || "", c.x + 4, y + 5, {
       size: 8,
       width: c.w - 8,

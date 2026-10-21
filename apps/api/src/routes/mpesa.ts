@@ -21,6 +21,7 @@ import {
 } from "../lib/daraja.js";
 import { allocateUnmatched, applyMpesaReceipt, findInvoiceByRef } from "../lib/mpesa-apply.js";
 import { limit } from "../middleware/rateLimit.js";
+import { friendlyError } from "../lib/errors.js";
 
 export const mpesaPublicRouter = Router();
 export const mpesaRouter = Router();
@@ -157,56 +158,61 @@ mpesaRouter.get("/transactions/:id", async (req, res) => {
 });
 
 mpesaRouter.post("/stk", limit("stk"), async (req, res) => {
-  const user = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { role: true, modules: true } });
-  if (!user || !canCollect(user)) {
-    return res.status(403).json({ error: "You do not have access to this module" });
-  }
-  const invoice = req.body.invoiceId
-    ? await prisma.invoice.findUnique({ where: { id: req.body.invoiceId }, include: { customer: true, order: { include: { payments: true, lines: true } } } })
-    : req.body.orderId
-      ? await prisma.invoice.findUnique({ where: { orderId: req.body.orderId }, include: { customer: true, order: { include: { payments: true, lines: true } } } })
-      : req.body.accountRef
-        ? await findInvoiceByRef(req.body.accountRef)
-        : null;
-  if (!invoice) return res.status(404).json({ error: "Invoice not found. Confirm the sale first." });
-  const phone = String(req.body.phone || invoice.customer.phone || "");
-  const paid = invoice.order.payments.reduce((s, p) => s + p.amount, 0);
-  const gross = invoice.order.lines.reduce((s, l) => s + l.qty * l.salePrice, 0) * (1 + invoice.vatRate);
-  const balance = Math.max(0, Math.round((gross - paid) * 100) / 100);
-  const amount = Number(req.body.amount || balance);
-  if (amount <= 0) return res.status(400).json({ error: "This invoice is already paid" });
-  const accountRef = stkAccountRef(invoice.number);
-  const pushed = await stkPush({
-    phone,
-    amount,
-    accountRef,
-    description: invoice.number.replace(/^INV-/, "").slice(0, 13),
-  });
-  const txn = await prisma.mpesaTxn.create({
-    data: {
-      kind: "STK",
-      status: "PENDING",
-      phone: pushed.phone,
-      amount: pushed.amount,
-      invoiceId: invoice.id,
-      orderId: invoice.orderId,
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { role: true, modules: true } });
+    if (!user || !canCollect(user)) {
+      return res.status(403).json({ error: "You do not have access to this module" });
+    }
+    const invoice = req.body.invoiceId
+      ? await prisma.invoice.findUnique({ where: { id: req.body.invoiceId }, include: { customer: true, order: { include: { payments: true, lines: true } } } })
+      : req.body.orderId
+        ? await prisma.invoice.findUnique({ where: { orderId: req.body.orderId }, include: { customer: true, order: { include: { payments: true, lines: true } } } })
+        : req.body.accountRef
+          ? await findInvoiceByRef(req.body.accountRef)
+          : null;
+    if (!invoice) return res.status(404).json({ error: "Invoice not found. Confirm the sale first." });
+    const phone = String(req.body.phone || invoice.customer.phone || "");
+    const paid = invoice.order.payments.reduce((s, p) => s + p.amount, 0);
+    const gross = invoice.order.lines.reduce((s, l) => s + l.qty * l.salePrice, 0) * (1 + invoice.vatRate);
+    const balance = Math.max(0, Math.round((gross - paid) * 100) / 100);
+    const amount = Number(req.body.amount || balance);
+    if (amount <= 0) return res.status(400).json({ error: "This invoice is already paid" });
+    const accountRef = stkAccountRef(invoice.number);
+    const pushed = await stkPush({
+      phone,
+      amount,
       accountRef,
-      description: invoice.number,
-      merchantRequest: pushed.MerchantRequestID,
-      checkoutRequest: pushed.CheckoutRequestID,
-      rawRequest: JSON.stringify(pushed.request || {}),
-      userId: req.user!.id,
-    },
-  });
-  res.status(201).json({
-    id: txn.id,
-    checkoutRequest: txn.checkoutRequest,
-    merchantRequest: txn.merchantRequest,
-    phone: txn.phone,
-    amount: txn.amount,
-    invoice: invoice.number,
-    message: `Prompt sent to ${txn.phone}. Ask the customer to enter their M-Pesa PIN.`,
-  });
+      description: invoice.number.replace(/^INV-/, "").slice(0, 13),
+    });
+    const txn = await prisma.mpesaTxn.create({
+      data: {
+        kind: "STK",
+        status: "PENDING",
+        phone: pushed.phone,
+        amount: pushed.amount,
+        invoiceId: invoice.id,
+        orderId: invoice.orderId,
+        accountRef,
+        description: invoice.number,
+        merchantRequest: pushed.MerchantRequestID,
+        checkoutRequest: pushed.CheckoutRequestID,
+        rawRequest: JSON.stringify(pushed.request || {}),
+        userId: req.user!.id,
+      },
+    });
+    res.status(201).json({
+      id: txn.id,
+      checkoutRequest: txn.checkoutRequest,
+      merchantRequest: txn.merchantRequest,
+      phone: txn.phone,
+      amount: txn.amount,
+      invoice: invoice.number,
+      message: `Prompt sent to ${txn.phone}. Ask the customer to enter their M-Pesa PIN.`,
+    });
+  } catch (err) {
+    const { status, message } = friendlyError(err);
+    res.status(status).json({ error: message });
+  }
 });
 
 mpesaRouter.post("/stk/:id/query", async (req, res) => {

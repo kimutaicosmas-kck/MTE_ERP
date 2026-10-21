@@ -1,5 +1,6 @@
 import { prisma } from "./prisma.js";
-import { ensureCompany, nextInvoiceNumber } from "./sequence.js";
+import { computeMarkupCommission } from "./markup-commission.js";
+import { ensureCompany, nextInvoiceNumber, withUniqueNumber } from "./sequence.js";
 
 function normalizeInvoiceNumber(raw?: string | null) {
   if (!raw) return null;
@@ -39,26 +40,42 @@ export async function issueInvoiceForOrder(orderId: string, opts?: { evenIfDraft
   if (existing) return existing;
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    include: { customer: true },
+    include: {
+      customer: true,
+      lines: { select: { qty: true, salePrice: true, listPrice: true } },
+      salesperson: { select: { commissionRate: true } },
+    },
   });
   if (!order || order.status === "CANCELLED") return null;
   if (order.status === "DRAFT" && !opts?.evenIfDraft) return null;
   const company = await ensureCompany();
-  const number = normalizeInvoiceNumber(order.invoiceNumber) || (await nextInvoiceNumber(company.setting.invoicePrefix || ""));
-  if (order.invoiceNumber !== number) {
-    await prisma.order.update({ where: { id: order.id }, data: { invoiceNumber: number } });
-  }
-  return prisma.invoice.create({
-    data: {
-      number,
-      orderId: order.id,
-      customerId: order.customerId,
-      salespersonId: order.salespersonId,
-      lpo: order.lpo,
-      vatRate: order.vatRate,
-      issuedAt: order.createdAt,
-      dueAt: dueFrom(order.customer.paymentTerms, order.createdAt),
-    },
+  const reserved = normalizeInvoiceNumber(order.invoiceNumber);
+  return withUniqueNumber(async () => {
+    const number = reserved && !(await prisma.invoice.findUnique({ where: { number: reserved } }))
+      ? reserved
+      : await nextInvoiceNumber(company.setting.invoicePrefix || "");
+    if (order.invoiceNumber !== number) {
+      await prisma.order.update({ where: { id: order.id }, data: { invoiceNumber: number } });
+    }
+    const commission = computeMarkupCommission(
+      order.lines,
+      order.salesperson?.commissionRate ?? 0
+    );
+    return prisma.invoice.create({
+      data: {
+        number,
+        orderId: order.id,
+        customerId: order.customerId,
+        salespersonId: order.salespersonId,
+        lpo: order.lpo,
+        vatRate: order.vatRate,
+        markupTotal: commission.markupTotal,
+        markupCommission: commission.markupCommission,
+        commissionRate: commission.commissionRate,
+        issuedAt: order.createdAt,
+        dueAt: dueFrom(order.customer.paymentTerms, order.createdAt),
+      },
+    });
   });
 }
 
@@ -112,6 +129,9 @@ export async function listInvoices() {
       dueAt: inv.dueAt,
       customer: inv.customer,
       salesperson: inv.salesperson,
+      markupTotal: inv.markupTotal,
+      markupCommission: inv.markupCommission,
+      commissionRate: inv.commissionRate,
       payments: inv.order.payments,
       totals,
     };

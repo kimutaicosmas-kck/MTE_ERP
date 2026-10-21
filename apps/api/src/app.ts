@@ -23,12 +23,25 @@ import { noticesRouter } from "./routes/notices.js";
 import { mpesaPublicRouter, mpesaRouter } from "./routes/mpesa.js";
 import { cacheLayer } from "./middleware/cache.js";
 import { limit } from "./middleware/rateLimit.js";
+import { blockBadPaths, requireJson, securityHeaders, trustProxy } from "./middleware/security.js";
 import { redisPing } from "./lib/redis.js";
+import { docsRouter } from "./routes/docs.js";
+import { friendlyError } from "./lib/errors.js";
+import { publicShareRouter } from "./routes/public-share.js";
+import { dispatchRouter } from "./routes/dispatch.js";
+import { inventoryModuleRouter } from "./routes/inventory-module.js";
+import { activityRouter } from "./routes/activity.js";
+import { assistantRouter } from "./routes/assistant.js";
+import { eventsRouter } from "./routes/events.js";
 
 export function createApp() {
   const app = express();
+  trustProxy(app);
+  app.use(securityHeaders);
   app.use(cors({ origin: true, credentials: true }));
-  app.use(express.json({ limit: "12mb" }));
+  app.use(express.json({ limit: "2mb", strict: true }));
+  app.use("/api", requireJson);
+  app.use(blockBadPaths);
   app.use("/uploads", express.static(join(process.cwd(), "uploads")));
 
   app.get("/api/health", async (_req, res) => {
@@ -45,11 +58,14 @@ export function createApp() {
   app.use("/api", attachUser);
   app.use("/api", limit("api"));
   app.use("/api", cacheLayer);
-  app.use("/api/webhooks", incomingWebhooksRouter);
-  app.use("/api/mpesa/callback", mpesaPublicRouter);
+  app.use("/api/share", limit("public"), publicShareRouter);
+  app.use("/api/webhooks", limit("public"), incomingWebhooksRouter);
+  app.use("/api/mpesa/callback", limit("public"), mpesaPublicRouter);
   app.use("/api/auth", authRouter);
   app.use("/api/parts", auth, partsRouter);
+  app.use("/api/inventory", auth, inventoryModuleRouter);
   app.use("/api/orders", auth, ordersRouter);
+  app.use("/api/dispatch", auth, dispatchRouter);
   app.use("/api", auth, directoryRouter);
   app.use("/api/approvals", auth, approvalsRouter);
   app.use("/api/finance", auth, financeRouter);
@@ -65,11 +81,16 @@ export function createApp() {
   app.use("/api/push", auth, pushRouter);
   app.use("/api/captures", auth, capturesRouter);
   app.use("/api/notices", auth, noticesRouter);
+  app.use("/api/activity", auth, activityRouter);
+  app.use("/api/assistant", auth, assistantRouter);
+  app.use("/api/events", eventsRouter);
   app.use("/api/mpesa", auth, mpesaRouter);
+  app.use("/api/docs", auth, docsRouter);
 
   app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     console.error(err);
-    res.status(500).json({ error: err.message || "Server error" });
+    const { status, message } = friendlyError(err);
+    res.status(status).json({ error: message });
   });
   return app;
 }

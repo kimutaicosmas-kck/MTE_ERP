@@ -1,9 +1,10 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
+import { recordActivity } from "../lib/activity.js";
 import { audit } from "../lib/audit.js";
 import { postApReceipt } from "../lib/ledger.js";
-import { nextBillNumber } from "../lib/sequence.js";
+import { nextBillNumber, nextGrnNumber, nextPoNumber } from "../lib/sequence.js";
 import { roles, moduleAccess } from "../middleware/auth.js";
 import { buildPurchasePdf } from "../lib/pdf.js";
 import { emit } from "../lib/webhooks.js";
@@ -65,13 +66,22 @@ function totals(po: {
 }
 
 async function nextPo() {
-  const count = await prisma.purchaseOrder.count();
-  return `PO-${String(count + 1).padStart(5, "0")}`;
+  return nextPoNumber();
 }
 
 async function nextGrn() {
-  const count = await prisma.goodsReceipt.count();
-  return `GRN-${String(count + 1).padStart(5, "0")}`;
+  return nextGrnNumber();
+}
+
+async function createUnique<T>(make: () => Promise<T>) {
+  for (let i = 0; i < 8; i++) {
+    try {
+      return await make();
+    } catch (err) {
+      if ((err as { code?: string }).code !== "P2002" || i === 7) throw err;
+    }
+  }
+  throw new Error("Could not allocate a document number");
 }
 
 async function loadPo(id: string) {
@@ -146,7 +156,19 @@ procurementRouter.post("/", async (req, res) => {
     },
     include: { vendor: true, lines: { include: { part: true } } },
   });
-  await audit(req, { entity: "PurchaseOrder", entityId: po.id, action: "CREATE", newValue: { number: po.number } });
+  await recordActivity(req, {
+    entity: "PurchaseOrder",
+    entityId: po.id,
+    action: "CREATE",
+    newValue: { number: po.number, vendor: vendor.name },
+    notice: {
+      title: "Purchase order created",
+      body: `${po.number} · ${vendor.name}`,
+      url: `/procurement/${po.id}`,
+    },
+    notifyModules: ["procurement"],
+    notifyRoles: ["SUPER_ADMIN", "ADMIN"],
+  });
   await emit("purchase.created", { id: po.id, number: po.number });
   res.status(201).json({ ...po, totals: totals(po) });
 });
@@ -183,6 +205,78 @@ procurementRouter.post("/:id/order", async (req, res) => {
   res.json({ ...updated, totals: totals(updated) });
 });
 
+type LoadedPo = NonNullable<Awaited<ReturnType<typeof loadPo>>>;
+
+async function postBillForReceipt(
+  po: LoadedPo,
+  receipt: { id: string; number: string; lines: { partId: string; qty: number }[] },
+  userId: string
+) {
+  const already = await prisma.vendorBill.findFirst({ where: { receiptId: receipt.id } });
+  if (already) return already;
+  const fx = po.fxRate || 1;
+  const qtyThis = receipt.lines.reduce((s, l) => s + l.qty, 0);
+  const qtyOrdered = po.lines.reduce((s, l) => s + l.qtyOrdered, 0);
+  const landedPool = (po.freight || 0) + (po.duty || 0) + (po.otherLanded || 0);
+  const landedThis = qtyOrdered ? (landedPool * qtyThis) / qtyOrdered : 0;
+  let inventory = 0;
+  for (const rl of receipt.lines) {
+    const line = po.lines.find((l) => l.partId === rl.partId);
+    const share = qtyThis ? landedThis * (rl.qty / qtyThis) : 0;
+    const unitKes = (line?.unitCost || 0) * fx + (rl.qty ? share / rl.qty : 0);
+    inventory += rl.qty * unitKes;
+  }
+  inventory = Math.round(inventory * 100) / 100;
+  const vat = Math.round(inventory * po.vatRate * 100) / 100;
+  const bill = await createUnique(() =>
+    nextBillNumber().then((number) =>
+      prisma.vendorBill.create({
+        data: {
+          number,
+          vendorId: po.vendorId,
+          purchaseId: po.id,
+          receiptId: receipt.id,
+          currency: "KES",
+          fxRate: fx,
+          net: inventory,
+          vat,
+          landed: Math.round(landedThis * 100) / 100,
+          gross: inventory + vat,
+          notes: `${po.number} / ${receipt.number}`,
+        },
+      })
+    )
+  );
+  await postApReceipt({ billId: bill.id, number: bill.number, inventory, vat, userId });
+  return bill;
+}
+
+async function refreshPurchase(id: string) {
+  const fresh = await loadPo(id);
+  const complete = fresh!.lines.every((l) => l.qtyReceived + 0.0001 >= l.qtyOrdered);
+  return prisma.purchaseOrder.update({
+    where: { id },
+    data: { status: complete ? "RECEIVED" : "PARTIAL" },
+    include: {
+      vendor: true,
+      createdBy: { select: { id: true, name: true } },
+      lines: { include: { part: true } },
+      receipts: { include: { receivedBy: { select: { name: true } }, lines: true }, orderBy: { createdAt: "desc" } },
+    },
+  });
+}
+
+async function finishOrphanReceipts(po: LoadedPo, userId: string) {
+  const orphans = po.receipts.filter((r) => !r.bill);
+  let last = orphans[orphans.length - 1] || null;
+  for (const receipt of orphans) {
+    await postBillForReceipt(po, receipt, userId);
+    last = receipt;
+  }
+  const updated = await refreshPurchase(po.id);
+  return { receipt: last ? { id: last.id, number: last.number } : null, purchase: { ...updated, totals: totals(updated) } };
+}
+
 procurementRouter.post("/:id/receive", async (req, res) => {
   const po = await loadPo(req.params.id);
   if (!po) return res.status(404).json({ error: "Purchase order not found" });
@@ -195,12 +289,18 @@ procurementRouter.post("/:id/receive", async (req, res) => {
   const incoming = z.object({
     notes: z.string().optional(),
     serials: z.array(z.object({ partId: z.string(), codes: z.array(z.string()) })).optional(),
-    lines: z.array(z.object({ lineId: z.string(), qty: z.number().positive() })).min(1),
+    lines: z.array(z.object({ lineId: z.string(), qty: z.number().nonnegative() })).optional().default([]),
   }).safeParse(req.body);
   if (!incoming.success) return res.status(400).json({ error: incoming.error.flatten() });
 
+  const stillOpen = po.lines.some((l) => l.qtyOrdered - l.qtyReceived > 0.0001);
+  if (!stillOpen) {
+    const finished = await finishOrphanReceipts(po, req.user!.id);
+    return res.status(201).json(finished);
+  }
+
   const receiptLines: { partId: string; qty: number }[] = [];
-  for (const item of incoming.data.lines) {
+  for (const item of incoming.data.lines.filter((l) => l.qty > 0)) {
     const line = po.lines.find((l) => l.id === item.lineId);
     if (!line) return res.status(400).json({ error: "Line not found on this PO" });
     const open = line.qtyOrdered - line.qtyReceived;
@@ -209,29 +309,32 @@ procurementRouter.post("/:id/receive", async (req, res) => {
     }
     receiptLines.push({ partId: line.partId, qty: item.qty });
   }
+  if (!receiptLines.length) return res.status(400).json({ error: "Enter a quantity to receive" });
 
-  const receipt = await prisma.goodsReceipt.create({
-    data: {
-      number: await nextGrn(),
-      purchaseId: po.id,
-      receivedById: req.user!.id,
-      notes: incoming.data.notes,
-      lines: { create: receiptLines },
-    },
-  });
+  const receipt = await createUnique(() =>
+    nextGrn().then((number) =>
+      prisma.goodsReceipt.create({
+        data: {
+          number,
+          purchaseId: po.id,
+          receivedById: req.user!.id,
+          notes: incoming.data.notes,
+          lines: { create: receiptLines },
+        },
+      })
+    )
+  );
 
   const fx = po.fxRate || 1;
-  const qtyThis = incoming.data.lines.reduce((s, l) => s + l.qty, 0);
+  const qtyThis = receiptLines.reduce((s, l) => s + l.qty, 0);
   const qtyOrdered = po.lines.reduce((s, l) => s + l.qtyOrdered, 0);
   const landedPool = (po.freight || 0) + (po.duty || 0) + (po.otherLanded || 0);
   const landedThis = qtyOrdered ? (landedPool * qtyThis) / qtyOrdered : 0;
-  let inventory = 0;
 
-  for (const item of incoming.data.lines) {
+  for (const item of incoming.data.lines.filter((l) => l.qty > 0)) {
     const line = po.lines.find((l) => l.id === item.lineId)!;
     const share = qtyThis ? landedThis * (item.qty / qtyThis) : 0;
     const unitKes = line.unitCost * fx + share / item.qty;
-    inventory += item.qty * unitKes;
     await prisma.purchaseLine.update({
       where: { id: line.id },
       data: { qtyReceived: { increment: item.qty } },
@@ -261,45 +364,37 @@ procurementRouter.post("/:id/receive", async (req, res) => {
     }
   }
 
-  inventory = Math.round(inventory * 100) / 100;
-  const vat = Math.round(inventory * po.vatRate * 100) / 100;
-  const bill = await prisma.vendorBill.create({
-    data: {
-      number: await nextBillNumber(),
-      vendorId: po.vendorId,
-      purchaseId: po.id,
-      receiptId: receipt.id,
-      currency: "KES",
-      fxRate: fx,
-      net: inventory,
-      vat,
-      landed: Math.round(landedThis * 100) / 100,
-      gross: inventory + vat,
-      notes: `${po.number} / ${receipt.number}`,
-    },
-  });
-  await postApReceipt({ billId: bill.id, number: bill.number, inventory, vat, userId: req.user!.id });
+  await postBillForReceipt(po, { id: receipt.id, number: receipt.number, lines: receiptLines }, req.user!.id);
 
-  const fresh = await loadPo(po.id);
-  const complete = fresh!.lines.every((l) => l.qtyReceived + 0.0001 >= l.qtyOrdered);
-  const nextStatus = complete ? "RECEIVED" : "PARTIAL";
-  const updated = await prisma.purchaseOrder.update({
-    where: { id: po.id },
-    data: { status: nextStatus },
-    include: {
-      vendor: true,
-      createdBy: { select: { id: true, name: true } },
-      lines: { include: { part: true } },
-      receipts: { include: { receivedBy: { select: { name: true } }, lines: true }, orderBy: { createdAt: "desc" } },
-    },
-  });
-  await audit(req, {
+  const updated = await refreshPurchase(po.id);
+  const bill = await prisma.vendorBill.findFirst({ where: { receiptId: receipt.id } });
+  await recordActivity(req, {
     entity: "GoodsReceipt",
     entityId: receipt.id,
     action: "CREATE",
-    newValue: { number: receipt.number, purchase: po.number, status: nextStatus },
+    newValue: { number: receipt.number, purchase: po.number, status: updated.status, bill: bill?.number },
+    notice: {
+      title: "Goods received",
+      body: `${receipt.number} on ${po.number} — stock updated${bill ? ` · Bill ${bill.number}` : ""}.`,
+      url: `/procurement/${po.id}`,
+    },
+    notifyModules: ["inventory", "finance", "procurement"],
+    notifyUserIds: po.createdById && po.createdById !== req.user!.id ? [po.createdById] : undefined,
   });
-  res.status(201).json({ receipt: { id: receipt.id, number: receipt.number }, purchase: { ...updated, totals: totals(updated) } });
+  res.status(201).json({
+    receipt: { id: receipt.id, number: receipt.number },
+    integration: {
+      stockMovements: receiptLines.map((l) => ({ partId: l.partId, qty: l.qty, type: "RECEIPT" })),
+      finance: bill
+        ? {
+            vendorBill: bill.number,
+            gross: bill.gross,
+            journal: "Dr Inventory (1200) · Dr VAT input (2110) · Cr Accounts payable (2000)",
+          }
+        : null,
+    },
+    purchase: { ...updated, totals: totals(updated) },
+  });
 });
 
 procurementRouter.post("/:id/cancel", async (req, res) => {

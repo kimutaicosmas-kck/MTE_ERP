@@ -15,8 +15,21 @@ function keepSecret(value: unknown) {
 }
 
 function publicSetting(setting: any, branches: unknown) {
-  const { darajaConsumerKey, darajaConsumerSecret, darajaPasskey, darajaSecurityCredential, vapidPrivate, ...safe } = setting;
-  return { ...safe, branches, daraja: darajaStatus(setting) };
+  const {
+    darajaConsumerKey,
+    darajaConsumerSecret,
+    darajaPasskey,
+    darajaSecurityCredential,
+    vapidPrivate,
+    openaiApiKey,
+    ...safe
+  } = setting;
+  return {
+    ...safe,
+    branches,
+    daraja: darajaStatus(setting),
+    openaiKeySet: Boolean(openaiApiKey?.trim() || process.env.OPENAI_API_KEY),
+  };
 }
 
 settingsRouter.get("/", async (_req, res) => {
@@ -52,6 +65,9 @@ settingsRouter.patch("/", moduleAccess("settings"), async (req, res) => {
       darajaPasskey: keepSecret(req.body.darajaPasskey),
       darajaSecurityCredential: keepSecret(req.body.darajaSecurityCredential),
       defaultBranchId: req.body.defaultBranchId ?? undefined,
+      assistantEnabled: req.body.assistantEnabled ?? undefined,
+      openaiModel: req.body.openaiModel ?? undefined,
+      openaiApiKey: keepSecret(req.body.openaiApiKey),
     },
   });
   if (next.darajaShortcode && !next.mpesaPaybill) {

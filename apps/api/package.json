@@ -8,7 +8,9 @@
     "cluster": "tsx src/cluster.ts",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
-    "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts"
+    "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts",
+    "system-test": "tsx scripts/system-test.ts",
+    "load-test": "tsx scripts/load-test.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.16.2",

@@ -38,6 +38,8 @@ services:
       JWT_SECRET: mte-erp-change-in-production
       REDIS_URL: redis://redis:6379
       PORT: "4000"
+      # Optional: enables `npm run load-test` without 429 (send matching X-Load-Test-Key). Remove in production.
+      LOAD_TEST_KEY: mte-local-load-key
     ports:
       - "4000:4000"
     volumes:

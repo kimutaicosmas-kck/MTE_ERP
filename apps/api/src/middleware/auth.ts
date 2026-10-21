@@ -2,7 +2,8 @@ import type { Request, Response, NextFunction } from "express";
 import { verifyToken } from "../lib/auth.js";
 import { prisma } from "../lib/prisma.js";
 import { canModule } from "../lib/access.js";
-import { getCachedAcl, readSession, redisReady, setCachedAcl } from "../lib/redis.js";
+import { authenticateToken, tokenFromRequest } from "../lib/session-auth.js";
+import { getCachedAcl, setCachedAcl } from "../lib/redis.js";
 
 declare global {
   namespace Express {
@@ -13,25 +14,20 @@ declare global {
 }
 
 export function attachUser(req: Request, _res: Response, next: NextFunction) {
-  const header = req.headers.authorization;
-  if (header?.startsWith("Bearer ")) {
-    try { req.user = verifyToken(header.slice(7)); } catch { /* public or expired */ }
+  const token = tokenFromRequest(req);
+  if (token) {
+    try { req.user = verifyToken(token); } catch { /* public or expired */ }
   }
   next();
 }
 
 export async function auth(req: Request, res: Response, next: NextFunction) {
-  const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) {
+  const token = tokenFromRequest(req);
+  if (!token) {
     return res.status(401).json({ error: "Sign in required" });
   }
   try {
-    const user = verifyToken(header.slice(7));
-    if (redisReady() && user.sid) {
-      const session = await readSession(user.sid);
-      if (!session.ok) return res.status(401).json({ error: "Session expired" });
-    }
-    req.user = user;
+    req.user = await authenticateToken(token);
     next();
   } catch {
     return res.status(401).json({ error: "Session expired" });

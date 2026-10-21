@@ -15,6 +15,10 @@ export function signToken(user: TokenUser) {
   return jwt.sign(user, SECRET, { expiresIn: "12h" });
 }
 
+export function signTicket(payload: object, expiresIn: jwt.SignOptions["expiresIn"] = "5m") {
+  return jwt.sign(payload, SECRET, { expiresIn });
+}
+
 export function verifyToken(token: string): TokenUser {
   return jwt.verify(token, SECRET) as TokenUser;
 }
@@ -30,14 +34,21 @@ export async function checkPassword(plain: string, hash: string) {
 export const SENSITIVE = new Set([
   "DELETE_ORDER",
   "DELETE_PART",
+  "DELETE_CUSTOMER",
+  "DELETE_EXPENSE",
   "EDIT_PRICE",
+  "EDIT_PART",
+  "EDIT_CUSTOMER",
   "ADJUST_STOCK",
   "CANCEL_ORDER",
+  "SALES_RETURN",
+  "VOID_PAYMENT",
   "REFUND",
   "CREDIT_OVERRIDE",
   "POST_JOURNAL",
   "REVERSE_JOURNAL",
   "UNLOCK_PERIOD",
+  "USER_SENSITIVE",
 ]);
 
 export function canBypassApproval(role: string) {

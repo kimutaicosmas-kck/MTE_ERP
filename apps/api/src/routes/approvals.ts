@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { prisma } from "../lib/prisma.js";
-import { audit } from "../lib/audit.js";
+import { recordActivity } from "../lib/activity.js";
 import { roles, moduleAccess } from "../middleware/auth.js";
-import { postStockReceipt, reverseJournal } from "../lib/ledger.js";
+import { applyApproval } from "../lib/apply-approval.js";
 import { emit } from "../lib/webhooks.js";
 
 export const approvalsRouter = Router();
@@ -42,72 +42,34 @@ approvalsRouter.post("/:id/decide", roles("SUPER_ADMIN"), async (req, res) => {
       reviewedAt: new Date(),
     },
   });
-  await audit(req, {
+  const decisionLabel = accept ? "approved" : "rejected";
+  const typeLabel = approval.type.replace(/_/g, " ");
+  const mod =
+    approval.type === "POST_JOURNAL" || approval.type === "DELETE_EXPENSE" || approval.type === "VOID_PAYMENT"
+      ? "finance"
+      : approval.type === "ADJUST_STOCK" || approval.type === "DELETE_PART"
+        ? "inventory"
+        : approval.type === "CANCEL_ORDER" || approval.type === "SALES_RETURN" || approval.type === "CREDIT_OVERRIDE"
+          ? "sales"
+          : null;
+  await recordActivity(req, {
     entity: "Approval",
     entityId: approval.id,
     action: accept ? "APPROVE" : "REJECT",
     oldValue: approval,
     newValue: updated,
     reason: approval.reason,
+    notice: {
+      title: accept ? `Approved: ${typeLabel}` : `Rejected: ${typeLabel}`,
+      body: accept
+        ? `${typeLabel} was approved${mod ? " and applied to the books." : "."}`
+        : `${typeLabel} was rejected.`,
+      url: "/approvals",
+    },
+    notifyUserIds: approval.requesterId ? [approval.requesterId] : undefined,
+    notifyModules: accept && mod ? [mod] : undefined,
   });
   await emit("approval.decided", { id: updated.id, type: approval.type, decision: updated.status });
   res.json(updated);
 });
 
-async function applyApproval(approval: {
-  type: string;
-  entity: string;
-  entityId: string;
-  newValue: string;
-}, userId: string) {
-  const next = JSON.parse(approval.newValue);
-  if (approval.type === "ADJUST_STOCK") {
-    const part = await prisma.part.findUnique({ where: { id: approval.entityId } });
-    if (!part) return;
-    const qty = Number(next.qty);
-    const type = String(next.type || "ADJUSTMENT");
-    await prisma.part.update({
-      where: { id: part.id },
-      data: { qtyOnHand: part.qtyOnHand + qty },
-    });
-    await prisma.stockMovement.create({
-      data: { partId: part.id, type, qty, reason: next.reason, userId },
-    });
-    if (type === "RECEIPT") {
-      await postStockReceipt({ partId: part.id, sku: part.sku, qty, cost: part.cost, userId });
-    }
-  }
-  if (approval.type === "DELETE_PART") {
-    await prisma.part.delete({ where: { id: approval.entityId } }).catch(() => null);
-  }
-  if (approval.type === "CANCEL_ORDER") {
-    const order = await prisma.order.findUnique({
-      where: { id: approval.entityId },
-      include: { lines: true },
-    });
-    if (!order) return;
-    for (const line of order.lines) {
-      await prisma.part.update({
-        where: { id: line.partId },
-        data: { qtyOnHand: { increment: line.qty } },
-      });
-    }
-    const journals = await prisma.journal.findMany({
-      where: { source: "SALE", sourceId: order.id, reversed: false },
-    });
-    for (const j of journals) await reverseJournal(j.id, userId);
-    await prisma.order.update({ where: { id: order.id }, data: { status: "CANCELLED" } });
-  }
-  if (approval.type === "CREDIT_OVERRIDE") {
-    await prisma.customer.update({
-      where: { id: approval.entityId },
-      data: { creditLimit: Number(next.creditLimit) },
-    });
-  }
-  if (approval.type === "EDIT_PRICE") {
-    await prisma.orderLine.update({
-      where: { id: approval.entityId },
-      data: { salePrice: Number(next.salePrice) },
-    });
-  }
-}

@@ -1,4 +1,6 @@
 import { Router } from "express";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/audit.js";
 import { canModule } from "../lib/access.js";
@@ -24,7 +26,7 @@ function leaveDays(start: Date, end: Date) {
   return Math.max(1, Math.round((b - a) / 86400000) + 1);
 }
 
-hrRouter.get("/people", moduleAccess("hr"), async (_req, res) => {
+hrRouter.get(["/employees", "/people"], moduleAccess("hr"), async (_req, res) => {
   res.json(
     await prisma.user.findMany({
       select: {
@@ -45,7 +47,7 @@ hrRouter.get("/people", moduleAccess("hr"), async (_req, res) => {
   );
 });
 
-hrRouter.patch("/people/:id", moduleAccess("hr"), async (req, res) => {
+hrRouter.patch(["/employees/:id", "/people/:id"], moduleAccess("hr"), async (req, res) => {
   const existing = await prisma.user.findUnique({ where: { id: req.params.id } });
   if (!existing) return res.status(404).json({ error: "Not found" });
   const next = await prisma.user.update({
@@ -121,7 +123,7 @@ hrRouter.post("/leave/:id/decide", moduleAccess("hr"), async (req, res) => {
     data: { status, reviewerId: req.user!.id },
     include: { user: { select: { id: true, name: true, department: true } }, reviewer: { select: { id: true, name: true } } },
   });
-  await audit(req, { entity: "LeaveRequest", entityId: row.id, action: status, newValue: { status } });
+  await audit(req, { entity: "LeaveRequest", entityId: row.id, action: status, oldValue: { status: existing.status }, newValue: { status } });
   await notifyUsers([row.userId], {
     title: `Leave ${status.toLowerCase()}`,
     body: `${row.type} leave · ${row.days} day(s)`,
@@ -227,5 +229,48 @@ hrRouter.post("/attendance", moduleAccess("hr"), async (req, res) => {
     },
     include: { user: { select: { id: true, name: true, department: true } } },
   });
+  res.status(201).json(row);
+});
+
+hrRouter.get("/employees/:id/files", moduleAccess("hr"), async (req, res) => {
+  res.json(
+    await prisma.employeeFile.findMany({
+      where: { userId: req.params.id },
+      orderBy: [{ name: "asc" }, { version: "desc" }],
+      include: { createdBy: { select: { name: true } } },
+    })
+  );
+});
+
+hrRouter.post("/employees/:id/files", moduleAccess("hr"), async (req, res) => {
+  const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+  if (!user) return res.status(404).json({ error: "Employee not found" });
+  const data = String(req.body.data || "");
+  if (!data.includes(",")) return res.status(400).json({ error: "Choose a file to upload" });
+  const raw = Buffer.from(data.split(",")[1], "base64");
+  if (raw.length > 8 * 1024 * 1024) return res.status(400).json({ error: "File must be under 8 MB" });
+  const name = String(req.body.name || "document").replace(/[^\w.\- ()]/g, "_");
+  const mime = String(req.body.mime || "application/octet-stream");
+  const kind = String(req.body.kind || "OTHER");
+  const latest = await prisma.employeeFile.findFirst({ where: { userId: user.id, name }, orderBy: { version: "desc" } });
+  const version = (latest?.version || 0) + 1;
+  const dir = join(process.cwd(), "uploads", "hr", user.id);
+  await mkdir(dir, { recursive: true });
+  const file = `${Date.now()}-v${version}-${name}`;
+  await writeFile(join(dir, file), raw);
+  const row = await prisma.employeeFile.create({
+    data: {
+      userId: user.id,
+      kind,
+      name,
+      mime,
+      path: `/uploads/hr/${user.id}/${file}`,
+      size: raw.length,
+      version,
+      createdById: req.user!.id,
+    },
+    include: { createdBy: { select: { name: true } } },
+  });
+  await audit(req, { entity: "EmployeeFile", entityId: row.id, action: "UPLOAD", newValue: { name, version, kind } });
   res.status(201).json(row);
 });

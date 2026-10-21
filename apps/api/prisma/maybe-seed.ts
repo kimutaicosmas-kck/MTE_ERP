@@ -5,6 +5,8 @@ const n = await prisma.user.count();
 
 const { ensureCompany } = await import("../src/lib/sequence.js");
 await ensureCompany();
+const { syncCoaCatalog } = await import("../src/lib/sync-coa.js");
+await syncCoaCatalog();
 
 const DEPT: Record<string, string> = {
   SUPER_ADMIN: "Administration",
@@ -23,7 +25,7 @@ if ((await prisma.notice.count()) === 0) {
       data: users.map((u) => ({
         userId: u.id,
         title: "Module access is live",
-        body: "You only see and use modules granted to you. Super Admin can change this on Staff.",
+        body: "You only see and use modules granted to you. Super Admin can change this on HR → Employees.",
         url: "/",
       })),
     });
@@ -57,6 +59,16 @@ if (n > 0) {
       });
       console.log("Seeded opening purchase orders");
     }
+  }
+  if ((await prisma.vehicle.count()) === 0) {
+    await prisma.vehicle.createMany({
+      data: [
+        { number: "KCA 123A", driverName: "James Kiprotich", driverPhone: "254712345678", transportCo: "MTE Fleet", capacity: "2 tonnes", maintenanceStatus: "OK" },
+        { number: "KCB 456B", driverName: "Peter Ochieng", driverPhone: "254723456789", transportCo: "MTE Fleet", capacity: "3 tonnes", maintenanceStatus: "OK" },
+        { number: "COURIER-GLS", driverName: "GLS Courier", driverPhone: "254700111222", transportCo: "GLS Logistics", capacity: "Parcel", maintenanceStatus: "OK" },
+      ],
+    });
+    console.log("Seeded demo vehicles");
   }
   await prisma.$disconnect();
   console.log(`Database already has ${n} users`);

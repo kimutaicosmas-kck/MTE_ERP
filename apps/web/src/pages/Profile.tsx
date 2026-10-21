@@ -1,7 +1,7 @@
 import { Bell, Camera, Download, KeyRound, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { MODULES, canModule } from "../lib/access";
+import { MODULES, DEPARTMENTS, canModule, departmentFor } from "../lib/access";
 import { api, pendingCount, syncOfflineQueue } from "../lib/api";
 import { useAuth, type User } from "../lib/auth";
 import { enablePush, pushEnabled } from "../lib/push";
@@ -55,7 +55,7 @@ export function AccountPanel() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <div className="card flex items-center gap-4">
         <label className="relative shrink-0 cursor-pointer">
           {user?.avatarUrl ? (
@@ -93,10 +93,10 @@ export function AccountPanel() {
           />
         </label>
         <div className="min-w-0">
-          <div className="font-serif text-2xl leading-tight">{user?.name}</div>
+          <div className="text-2xl font-semibold tracking-tight leading-tight">{user?.name}</div>
           <div className="text-sm text-stone-500">{user?.email}</div>
           <div className="mt-1 text-xs uppercase tracking-wide text-stone-400">
-            {user?.department || "Operations"} · {roleLabel}
+            {departmentFor(user) || user?.department || "Operations"} · {roleLabel}
             {user?.jobTitle ? ` · ${user.jobTitle}` : ""}
           </div>
         </div>
@@ -104,6 +104,7 @@ export function AccountPanel() {
 
       <ContactCard user={user} onSaved={(next) => { setUser(next); note("Details saved"); }} onError={(m) => note(m, true)} />
       <PasswordCard onSaved={() => note("Password changed")} onError={(m) => note(m, true)} />
+      <MfaCard enabled={Boolean(user?.mfaEnabled)} onChange={(on) => { setUser({ ...user!, mfaEnabled: on }); note(on ? "Authenticator on" : "Authenticator off"); }} onError={(m) => note(m, true)} />
 
       <div className="card space-y-3">
         <h2 className="font-semibold">Your access</h2>
@@ -203,12 +204,14 @@ function ContactCard({
 }) {
   const [name, setName] = useState(user?.name || "");
   const [phone, setPhone] = useState(user?.phone || "");
+  const [department, setDepartment] = useState(departmentFor(user) || "Administration");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     setName(user?.name || "");
     setPhone(user?.phone || "");
-  }, [user?.name, user?.phone]);
+    setDepartment(departmentFor(user) || "Administration");
+  }, [user?.name, user?.phone, user?.department, user?.role]);
 
   return (
     <form
@@ -219,7 +222,7 @@ function ContactCard({
         try {
           const next = await api<User>("/api/auth/me", {
             method: "PATCH",
-            body: JSON.stringify({ name, phone }),
+            body: JSON.stringify({ name, phone, department }),
           });
           onSaved(next);
         } catch (err) {
@@ -237,6 +240,14 @@ function ContactCard({
       <div>
         <label>Phone</label>
         <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="07…" />
+      </div>
+      <div>
+        <label>Department</label>
+        <select value={department} onChange={(e) => setDepartment(e.target.value)}>
+          {DEPARTMENTS.map((d) => (
+            <option key={d} value={d}>{d}</option>
+          ))}
+        </select>
       </div>
       <div>
         <label>Email</label>
@@ -293,5 +304,94 @@ function PasswordCard({ onSaved, onError }: { onSaved: () => void; onError: (mes
         <KeyRound size={16} /> {busy ? "Updating…" : "Change password"}
       </button>
     </form>
+  );
+}
+
+function MfaCard({
+  enabled,
+  onChange,
+  onError,
+}: {
+  enabled: boolean;
+  onChange: (on: boolean) => void;
+  onError: (message: string) => void;
+}) {
+  const [secret, setSecret] = useState("");
+  const [otpauth, setOtpauth] = useState("");
+  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="card space-y-3">
+      <h2 className="font-semibold">Two-factor authentication</h2>
+      <p className="text-sm text-stone-500">
+        {enabled ? "An authenticator app is required at sign-in." : "Add Google Authenticator or similar for a second step after the password."}
+      </p>
+      {!enabled && !secret && (
+        <button
+          className="btn-gold"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              const res = await api<{ secret: string; otpauth: string }>("/api/auth/mfa/setup", { method: "POST", body: "{}" });
+              setSecret(res.secret);
+              setOtpauth(res.otpauth);
+            } catch (e) {
+              onError((e as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          Set up authenticator
+        </button>
+      )}
+      {secret && (
+        <form
+          className="space-y-2"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setBusy(true);
+            try {
+              await api("/api/auth/mfa/enable", { method: "POST", body: JSON.stringify({ code }) });
+              setSecret("");
+              setCode("");
+              onChange(true);
+            } catch (err) {
+              onError((err as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <p className="break-all text-xs">Secret: <strong>{secret}</strong></p>
+          {otpauth && <p className="break-all text-[11px] text-stone-400">{otpauth}</p>}
+          <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="6-digit code" required />
+          <button className="btn-gold" disabled={busy}>Turn on MFA</button>
+        </form>
+      )}
+      {enabled && (
+        <form
+          className="space-y-2"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setBusy(true);
+            try {
+              await api("/api/auth/mfa/disable", { method: "POST", body: JSON.stringify({ password }) });
+              setPassword("");
+              onChange(false);
+            } catch (err) {
+              onError((err as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Current password" required />
+          <button className="btn-danger" disabled={busy}>Turn off MFA</button>
+        </form>
+      )}
+    </div>
   );
 }

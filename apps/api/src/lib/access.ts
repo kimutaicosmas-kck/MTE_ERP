@@ -16,6 +16,19 @@ export const MODULES = [
 
 export const DEPARTMENTS = ["Sales", "Warehouse", "Finance", "Administration", "Procurement", "Operations"];
 
+export const ROLE_DEPARTMENT: Record<string, string> = {
+  SUPER_ADMIN: "Administration",
+  ADMIN: "Administration",
+  SALES: "Sales",
+  WAREHOUSE: "Warehouse",
+  FINANCE: "Finance",
+};
+
+export function departmentFor(user: { role: string; department?: string | null }) {
+  if (user.department) return user.department;
+  return ROLE_DEPARTMENT[user.role] || "Operations";
+}
+
 export const ROLE_MODULES: Record<string, string[]> = {
   SUPER_ADMIN: MODULES.map((m) => m.id),
   ADMIN: MODULES.map((m) => m.id),
@@ -61,17 +74,19 @@ export function publicUser(user: {
   avatarUrl?: string | null;
   jobTitle?: string | null;
   monthlyTarget?: number | null;
+  mfaEnabled?: boolean | null;
 }) {
   return {
     id: user.id,
     name: user.name,
     email: user.email,
     role: user.role,
-    department: user.department || "Operations",
+    department: departmentFor(user),
     modules: userModules(user),
     phone: user.phone || null,
     avatarUrl: user.avatarUrl || null,
     jobTitle: user.jobTitle || null,
     monthlyTarget: user.monthlyTarget ?? 0,
+    mfaEnabled: Boolean(user.mfaEnabled),
   };
 }

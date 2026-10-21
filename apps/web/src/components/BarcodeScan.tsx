@@ -51,8 +51,9 @@ export function BarcodeScan({ onDetect }: { onDetect: (code: string) => void }) 
 
   return (
     <>
-      <button type="button" className="btn-ghost" onClick={() => { setErr(""); setOpen(true); }}>
-        <ScanLine size={16} /> Scan
+      <button type="button" className="scan-btn" onClick={() => { setErr(""); setOpen(true); }} aria-label="Scan">
+        <ScanLine size={16} />
+        <span className="tool-label">Scan</span>
       </button>
       {open && (
         <div className="fixed inset-0 z-[70] grid place-items-end bg-black/60 p-0 sm:place-items-center sm:p-4" onClick={() => setOpen(false)}>

@@ -11,7 +11,13 @@
     "db:push": "npm run db:push -w api",
     "db:seed": "npm run db:seed -w api",
     "db:reset": "npm run db:reset -w api",
-    "docker": "docker compose up --build"
+    "docker": "docker compose up --build",
+    "test:system": "npm run system-test -w api",
+    "load-test": "npm run load-test -w api",
+    "test:load": "npm run load-test -w api",
+    "test:e2e": "npm run test:e2e -w web",
+    "test:e2e:desktop": "npm run test:e2e:desktop -w web",
+    "test:e2e:install": "npm run install:browsers -w web"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

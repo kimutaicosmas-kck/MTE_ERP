@@ -101,4 +101,11 @@ export async function notifyEvent(event: string, data: any) {
       url: data?.id ? `/procurement/${data.id}` : "/procurement",
     });
   }
+  if (event === "goods.received") {
+    await notifyModule("inventory", {
+      title,
+      body: `Goods receipt · ${data?.number || ""} on ${data?.purchase || ""}`,
+      url: data?.purchaseId ? `/procurement/${data.purchaseId}` : "/procurement",
+    });
+  }
 }

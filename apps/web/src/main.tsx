@@ -11,7 +11,32 @@ const client = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1, networkMode: "offlineFirst" } },
 });
 
-registerSW({ immediate: true });
+registerSW({
+  immediate: true,
+  onRegisterError(error) {
+    console.error("[PWA] Service worker registration failed:", error);
+  },
+  onRegistered(registration) {
+    if (registration) {
+      registration.update().catch(() => undefined);
+      window.setInterval(() => registration.update().catch(() => undefined), 60 * 60 * 1000);
+      registration.addEventListener("updatefound", () => {
+        const worker = registration.installing;
+        worker?.addEventListener("statechange", () => {
+          if (worker.state === "activated" && navigator.serviceWorker.controller) {
+            window.location.reload();
+          }
+        });
+      });
+    }
+  },
+  onNeedRefresh() {
+    window.location.reload();
+  },
+  onOfflineReady() {
+    console.info("[PWA] Ready for offline use");
+  },
+});
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

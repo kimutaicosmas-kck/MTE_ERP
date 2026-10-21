@@ -26,8 +26,14 @@ model User {
   nationalId     String?
   hireDate       DateTime?
   avatarUrl      String?
+  mfaSecret      String?
+  mfaEnabled     Boolean  @default(false)
+  resetToken     String?
+  resetExpires   DateTime?
 
   branch     Branch?         @relation(fields: [branchId], references: [id])
+  files          EmployeeFile[] @relation("EmployeeDocs")
+  uploadedFiles  EmployeeFile[] @relation("FileUploader")
   orders     Order[]
   audits     AuditLog[]
   requested  Approval[] @relation("RequestedBy")
@@ -51,6 +57,11 @@ model User {
   mpesaTxns  MpesaTxn[]
   reviewedAdvances SalaryAdvance[] @relation("AdvanceReviewer")
   attendance Attendance[]
+  dispatchedOrders Order[] @relation("OrderDispatcher")
+  drivenOrders     Order[] @relation("OrderDriver")
+  qcOrders         Order[] @relation("OrderQcBy")
+  dispatchLogs     OrderStatusLog[]
+  assistantTurns   AssistantTurn[]
 }
 
 model Notice {
@@ -66,6 +77,7 @@ model Notice {
 
 model Customer {
   id            String  @id @default(cuid())
+  customerNumber String? @unique
   name          String
   phone         String?
   email         String?
@@ -99,11 +111,14 @@ model Part {
   cost          Float
   salePrice     Float
   qtyOnHand     Float    @default(0)
+  reservedQty   Float    @default(0)
   reorderLevel  Float    @default(2)
   critical      Boolean  @default(false)
   trackSerial   Boolean  @default(false)
+  warehouseBinId String?
   createdAt     DateTime @default(now())
 
+  warehouseBin  WarehouseBin? @relation(fields: [warehouseBinId], references: [id], onDelete: SetNull)
   compat        PartCompat[]
   movements     StockMovement[]
   lines         OrderLine[]
@@ -134,44 +149,108 @@ model StockMovement {
 }
 
 model Order {
-  id             String   @id @default(cuid())
-  number         String   @unique
-  channel        String
-  status         String   @default("DRAFT")
-  customerId     String
-  salespersonId  String?
-  dispatchMethod String   @default("SHOP_COLLECT")
-  tracking       String?
-  lpo            String?
-  notes          String?
-  vatRate        Float    @default(0.16)
-  invoiceNumber  String?  @unique
-  currency       String   @default("KES")
-  branchId       String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id               String    @id @default(cuid())
+  number           String    @unique
+  channel          String
+  status           String    @default("DRAFT")
+  customerId       String
+  salespersonId    String?
+  dispatchMethod   String    @default("SHOP_COLLECT")
+  dispatchSource   String    @default("SALES_ORDER")
+  priority         String    @default("NORMAL")
+  tracking         String?
+  lpo              String?
+  notes            String?
+  vatRate          Float     @default(0.16)
+  invoiceNumber    String?   @unique
+  currency         String    @default("KES")
+  branchId         String?
+  expectedDelivery DateTime?
+  dispatcherId     String?
+  driverId         String?
+  vehicleId        String?
+  packingBoxes     Int       @default(0)
+  packingWeight    Float?
+  packingNotes     String?
+  qcPassed         Boolean?
+  qcNotes          String?
+  qcAt             DateTime?
+  qcById           String?
+  podReceiver      String?
+  podPhone         String?
+  podGps           String?
+  podOtp           String?
+  podAt            DateTime?
+  failureReason    String?
+  returnReason     String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  customer    Customer     @relation(fields: [customerId], references: [id])
-  salesperson User?        @relation(fields: [salespersonId], references: [id])
-  branch      Branch?      @relation(fields: [branchId], references: [id])
+  customer    Customer          @relation(fields: [customerId], references: [id])
+  salesperson User?             @relation(fields: [salespersonId], references: [id])
+  dispatcher  User?             @relation("OrderDispatcher", fields: [dispatcherId], references: [id])
+  driver      User?             @relation("OrderDriver", fields: [driverId], references: [id])
+  qcBy        User?             @relation("OrderQcBy", fields: [qcById], references: [id])
+  vehicle     Vehicle?          @relation(fields: [vehicleId], references: [id])
+  branch      Branch?           @relation(fields: [branchId], references: [id])
   lines       OrderLine[]
   payments    Payment[]
   files       Attachment[]
   returns     SalesReturn[]
   invoice     Invoice?
+  statusLogs  OrderStatusLog[]
 }
 
 model OrderLine {
-  id        String  @id @default(cuid())
+  id            String  @id @default(cuid())
+  orderId       String
+  partId        String
+  vendorId      String?
+  qty           Float
+  listPrice     Float   @default(0)
+  salePrice     Float
+  cost          Float
+  pickedQty     Float   @default(0)
+  packedQty     Float   @default(0)
+  dispatchedQty Float   @default(0)
+  deliveredQty  Float   @default(0)
+  rejectedQty   Float   @default(0)
+  returnedQty   Float   @default(0)
+  batchNo       String?
+  serialNo      String?
+  remarks       String?
+  order         Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  part          Part    @relation(fields: [partId], references: [id])
+  vendor        Vendor? @relation(fields: [vendorId], references: [id])
+}
+
+model OrderStatusLog {
+  id        String   @id @default(cuid())
   orderId   String
-  partId    String
-  vendorId  String?
-  qty       Float
-  salePrice Float
-  cost      Float
-  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  part      Part    @relation(fields: [partId], references: [id])
-  vendor    Vendor? @relation(fields: [vendorId], references: [id])
+  status    String
+  userId    String?
+  notes     String?
+  createdAt DateTime @default(now())
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user      User?    @relation(fields: [userId], references: [id])
+}
+
+model Vehicle {
+  id                String    @id @default(cuid())
+  number            String    @unique
+  driverName        String?
+  driverPhone       String?
+  transportCo       String?
+  capacity          String?
+  route             String?
+  gpsDevice         String?
+  maintenanceStatus String    @default("OK")
+  insuranceExpiry   DateTime?
+  licenseExpiry     DateTime?
+  mileage           Float     @default(0)
+  active            Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  orders            Order[]
 }
 
 model Invoice {
@@ -182,6 +261,9 @@ model Invoice {
   salespersonId String?
   lpo           String?
   vatRate       Float    @default(0.16)
+  markupTotal       Float @default(0)
+  markupCommission  Float @default(0)
+  commissionRate    Float @default(0)
   status        String   @default("UNPAID")
   issuedAt      DateTime @default(now())
   dueAt         DateTime?
@@ -248,11 +330,19 @@ model AuditLog {
 }
 
 model Account {
-  id     String @id @default(cuid())
-  code   String @unique
-  name   String
-  type   String
-  lines  JournalLine[]
+  id                 String  @id @default(cuid())
+  code               String  @unique
+  name               String
+  type               String
+  parentCode         String?
+  detailType         String?
+  normalBalance      String  @default("DR")
+  allowManualPosting Boolean @default(true)
+  isControl          Boolean @default(false)
+  isActive           Boolean @default(true)
+  reportingGroup     String?
+  currency           String  @default("KES")
+  lines              JournalLine[]
 }
 
 model Journal {
@@ -361,6 +451,48 @@ model WebhookInbox {
   createdAt DateTime @default(now())
 }
 
+model WarehouseSite {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  address   String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  zones     WarehouseZone[]
+}
+
+model WarehouseZone {
+  id          String   @id @default(cuid())
+  warehouseId String
+  code        String
+  label       String
+  warehouse   WarehouseSite @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  bins        WarehouseBin[]
+
+  @@unique([warehouseId, code])
+}
+
+model WarehouseBin {
+  id     String @id @default(cuid())
+  zoneId String
+  code   String
+  label  String?
+  zone   WarehouseZone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  parts  Part[]
+
+  @@unique([zoneId, code])
+}
+
+model AssistantTurn {
+  id        String   @id @default(cuid())
+  userId    String
+  role      String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
 model PurchaseOrder {
   id          String   @id @default(cuid())
   number      String   @unique
@@ -447,6 +579,9 @@ model Setting {
   defaultBranchId String?
   vapidPublic    String? @db.Text
   vapidPrivate   String? @db.Text
+  assistantEnabled      Boolean @default(true)
+  openaiApiKey          String? @db.Text
+  openaiModel           String  @default("gpt-4o-mini")
 }
 
 model MpesaTxn {
@@ -666,4 +801,21 @@ model WorkerHeartbeat {
   pid      Int
   seenAt   DateTime @default(now())
   meta     String?
+}
+
+model EmployeeFile {
+  id          String   @id @default(cuid())
+  userId      String
+  kind        String   @default("OTHER")
+  name        String
+  mime        String
+  path        String
+  size        Int      @default(0)
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  createdById String?
+  user        User     @relation("EmployeeDocs", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy   User?    @relation("FileUploader", fields: [createdById], references: [id])
+
+  @@index([userId, kind])
 }

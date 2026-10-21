@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { ActivityTimeline } from "../components/ActivityTimeline";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { PageHeader, RowPdf } from "../components/ui";
+import { MteSelect, PageHeader, RowPdf, mapSelectOptions } from "../components/ui";
 import { api, downloadPurchasePdf, money } from "../lib/api";
 import type { Purchase } from "./Procurement";
 
@@ -46,7 +47,7 @@ export function PurchaseDetail() {
   if (!po) return <p>Loading…</p>;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <PageHeader eyebrow="Procurement" title={po.number} backTo="/procurement" />
       <p className="text-stone-500">
         {po.vendor.name}
@@ -55,7 +56,6 @@ export function PurchaseDetail() {
       </p>
       <span className="badge bg-gold text-ink">{po.status}</span>
       <div className="flex flex-wrap gap-2">
-        <Link to="/procurement" className="btn-ghost">Back</Link>
         <button className="btn-ghost" onClick={() => downloadPurchasePdf(po.id)}>PDF</button>
         {canReceive && (
           <a href="#receive-goods" className="btn-success">Receive goods</a>
@@ -138,14 +138,19 @@ export function PurchaseDetail() {
       {po.receipts?.length > 0 && (
         <div className="card space-y-2">
           <h2 className="font-semibold">Goods receipts</h2>
+          <p className="text-xs text-stone-500">Each GRN increases stock (movement type RECEIPT) and posts a vendor bill to finance.</p>
           {po.receipts.map((r) => (
-            <div key={r.id} className="flex justify-between text-sm">
+            <div key={r.id} className="flex flex-wrap justify-between gap-2 text-sm border-t border-stone-100 pt-2 first:border-0 first:pt-0">
               <span>{r.number} · {r.receivedBy?.name || "Warehouse"}</span>
-              <span className="text-stone-500">{new Date(r.createdAt).toLocaleString()}</span>
+              <span className="flex gap-2 text-stone-500">
+                {new Date(r.createdAt).toLocaleString()}
+                <Link className="underline" to="/inventory?section=movements">Movements</Link>
+              </span>
             </div>
           ))}
         </div>
       )}
+      <ActivityTimeline entity="PurchaseOrder" entityId={po.id} title="Procurement timeline" />
     </div>
   );
 }
@@ -157,9 +162,12 @@ function ReceiveGoods({ purchase, onDone }: { purchase: Detail; onDone: () => vo
     [purchase.lines]
   );
   const [qty, setQty] = useState<Record<string, number>>(defaults);
+  useEffect(() => { setQty(defaults); }, [defaults]);
+  const openTotal = purchase.lines.reduce((s, l) => s + Math.max(0, l.qtyOrdered - l.qtyReceived), 0);
+  const [lastGrn, setLastGrn] = useState<{ number: string; finance?: { vendorBill: string; gross: number; journal: string } } | null>(null);
   const receive = useMutation({
     mutationFn: () =>
-      api(`/api/purchases/${purchase.id}/receive`, {
+      api<{ receipt: { number: string }; integration?: { finance?: { vendorBill: string; gross: number; journal: string } } }>(`/api/purchases/${purchase.id}/receive`, {
         method: "POST",
         body: JSON.stringify({
           notes: notes || undefined,
@@ -168,7 +176,13 @@ function ReceiveGoods({ purchase, onDone }: { purchase: Detail; onDone: () => vo
             .filter((l) => l.qty > 0),
         }),
       }),
-    onSuccess: onDone,
+    onSuccess: (data) => {
+      setLastGrn({
+        number: data.receipt?.number || "GRN",
+        finance: data.integration?.finance,
+      });
+      onDone();
+    },
   });
 
   return (
@@ -205,7 +219,18 @@ function ReceiveGoods({ purchase, onDone }: { purchase: Detail; onDone: () => vo
         <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Packing list, container, damage" />
       </div>
       {receive.error && <p className="text-sm text-red-600">{(receive.error as Error).message}</p>}
-      <button className="btn-success" disabled={receive.isPending}>Receive goods</button>
+      {lastGrn && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 space-y-1">
+          <div><strong>{lastGrn.number}</strong> posted — stock updated and movement logged.</div>
+          {lastGrn.finance && (
+            <div>Finance: bill <strong>{lastGrn.finance.vendorBill}</strong> ({money(lastGrn.finance.gross)}) · {lastGrn.finance.journal}</div>
+          )}
+          <Link className="underline font-medium" to="/inventory?section=movements">View inventory movements →</Link>
+        </div>
+      )}
+      <button className="btn-success" disabled={receive.isPending}>
+        {openTotal > 0 ? "Receive goods" : "Finish receipt"}
+      </button>
     </form>
   );
 }
@@ -220,6 +245,14 @@ function DraftEditor({ purchase }: { purchase: Detail }) {
   const [notes, setNotes] = useState(purchase.notes || "");
   const [lines, setLines] = useState(
     purchase.lines.map((l) => ({ partId: l.partId, qtyOrdered: l.qtyOrdered, unitCost: l.unitCost }))
+  );
+  const vendorOptions = useMemo(
+    () => mapSelectOptions(vendors.data || [], (v) => v.id, (v) => v.name),
+    [vendors.data],
+  );
+  const partOptions = useMemo(
+    () => mapSelectOptions(parts.data || [], (p) => p.id, (p) => `${p.sku} · ${p.name}`),
+    [parts.data],
   );
 
   const save = useMutation({
@@ -245,9 +278,7 @@ function DraftEditor({ purchase }: { purchase: Detail }) {
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <label>Vendor</label>
-          <select value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
-            {vendors.data?.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-          </select>
+          <MteSelect aria-label="Vendor" value={vendorId} onChange={setVendorId} allowEmpty={false} options={vendorOptions} />
         </div>
         <div>
           <label>Supplier ref</label>
@@ -264,18 +295,18 @@ function DraftEditor({ purchase }: { purchase: Detail }) {
       </div>
       {lines.map((l, i) => (
         <div key={i} className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-6">
-          <select
+          <MteSelect
             className="col-span-3"
+            aria-label="Product"
             value={l.partId}
-            onChange={(e) => {
+            onChange={(partId) => {
               const next = [...lines];
-              next[i].partId = e.target.value;
+              next[i].partId = partId;
               setLines(next);
             }}
-          >
-            <option value="">Product…</option>
-            {parts.data?.map((p) => <option key={p.id} value={p.id}>{p.sku} · {p.name}</option>)}
-          </select>
+            options={partOptions}
+            placeholder="Product…"
+          />
           <input type="number" value={l.qtyOrdered} onChange={(e) => {
             const next = [...lines];
             next[i].qtyOrdered = Number(e.target.value);

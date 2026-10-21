@@ -5,14 +5,14 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: "#111418",
-        gold: "#c4a035",
-        paper: "#f3f0e8",
-        night: "#0f1216",
+        ink: "#0b1f36",
+        gold: "#f59a1a",
+        paper: "#f4f6fa",
+        night: "#0a1220",
       },
       fontFamily: {
-        sans: ["DM Sans", "Segoe UI", "sans-serif"],
-        serif: ["Fraunces", "Georgia", "serif"],
+        sans: ["Inter", "Segoe UI", "system-ui", "sans-serif"],
+        serif: ["Georgia", "Times New Roman", "serif"],
       },
     },
   },

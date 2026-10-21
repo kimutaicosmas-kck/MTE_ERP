@@ -56,6 +56,14 @@ export async function loadDarajaConfig(): Promise<DarajaConfig> {
   if (!consumerKey || !consumerSecret) throw new Error("Daraja consumer key and secret are not set. Add them in Settings → M-Pesa.");
   if (!shortcode) throw new Error("Daraja shortcode / paybill is not set.");
   if (!callbackUrl) throw new Error("Public callback URL is not set. Use your live HTTPS site, e.g. https://erp.company.com");
+  if (!/^https:\/\//i.test(callbackUrl)) {
+    throw new Error("M-Pesa callback URL must be HTTPS (Safaricom requirement). Use https://your-domain or an HTTPS tunnel.");
+  }
+  if (/localhost|127\.0\.0\.1|0\.0\.0\.0|192\.168\.|10\.\d+\./i.test(callbackUrl)) {
+    throw new Error(
+      "M-Pesa cannot reach localhost. Set callback URL to a public HTTPS address (your live ERP or an ngrok/cloudflare tunnel) in Settings → M-Pesa.",
+    );
+  }
   return {
     env,
     consumerKey,

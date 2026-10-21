@@ -46,3 +46,41 @@ systemRouter.get("/backup", roles("SUPER_ADMIN"), async (req, res) => {
   res.setHeader("Content-Disposition", `attachment; filename="mte-erp-backup-${new Date().toISOString().slice(0, 10)}.json"`);
   res.send(JSON.stringify(dump, null, 2));
 });
+
+systemRouter.post("/restore", roles("SUPER_ADMIN"), async (req, res) => {
+  const dump = req.body || {};
+  if (!dump.settings && !dump.customers && !dump.parts && !dump.vendors) {
+    return res.status(400).json({ error: "This file is not an MTE ERP backup." });
+  }
+  let restored = 0;
+  if (Array.isArray(dump.settings)) {
+    for (const row of dump.settings) {
+      const { id, ...data } = row;
+      await prisma.setting.upsert({ where: { id: id || "default" }, create: { id: id || "default", ...data }, update: data });
+      restored += 1;
+    }
+  }
+  if (Array.isArray(dump.customers)) {
+    for (const row of dump.customers) {
+      const { orders, invoices, returns, ...data } = row;
+      await prisma.customer.upsert({ where: { id: data.id }, create: data, update: data });
+      restored += 1;
+    }
+  }
+  if (Array.isArray(dump.vendors)) {
+    for (const row of dump.vendors) {
+      const { lines, purchases, bills, ...data } = row;
+      await prisma.vendor.upsert({ where: { id: data.id }, create: data, update: data });
+      restored += 1;
+    }
+  }
+  if (Array.isArray(dump.parts)) {
+    for (const row of dump.parts) {
+      const { compat, movements, lines, purchaseLines, serials, returnLines, ...data } = row;
+      await prisma.part.upsert({ where: { id: data.id }, create: data, update: data });
+      restored += 1;
+    }
+  }
+  await audit(req, { entity: "System", entityId: "backup", action: "RESTORE", newValue: { restored } });
+  res.json({ ok: true, restored });
+});

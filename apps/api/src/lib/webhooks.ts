@@ -2,6 +2,7 @@ import { createHmac, randomBytes } from "crypto";
 import { prisma } from "./prisma.js";
 import { enqueue } from "./queue.js";
 import { notifyEvent } from "./push.js";
+import { broadcastRealtime } from "./realtime.js";
 
 export const WEBHOOK_EVENTS = [
   "order.created",
@@ -13,7 +14,21 @@ export const WEBHOOK_EVENTS = [
   "incoming.mpesa",
 ] as const;
 
+const WEBHOOK_PAYLOAD_MAX = 8000;
+
+function webhookPayload(event: string, data: unknown) {
+  const body = JSON.stringify({ event, sentAt: new Date().toISOString(), data });
+  if (body.length <= WEBHOOK_PAYLOAD_MAX) return body;
+  return JSON.stringify({
+    event,
+    sentAt: new Date().toISOString(),
+    truncated: true,
+    preview: body.slice(0, WEBHOOK_PAYLOAD_MAX - 120),
+  });
+}
+
 export async function emit(event: string, data: unknown) {
+  broadcastRealtime(event, data);
   notifyEvent(event, data).catch(() => undefined);
   const endpoints = await prisma.webhookEndpoint.findMany({ where: { active: true } });
   const matches = endpoints.filter((e) => {
@@ -21,15 +36,19 @@ export async function emit(event: string, data: unknown) {
     return list.includes("*") || list.includes(event);
   });
   for (const endpoint of matches) {
-    const delivery = await prisma.webhookDelivery.create({
-      data: {
-        endpointId: endpoint.id,
-        event,
-        payload: JSON.stringify({ event, sentAt: new Date().toISOString(), data }),
-        status: "QUEUED",
-      },
-    });
-    await enqueue("webhook.deliver", { deliveryId: delivery.id });
+    try {
+      const delivery = await prisma.webhookDelivery.create({
+        data: {
+          endpointId: endpoint.id,
+          event,
+          payload: webhookPayload(event, data),
+          status: "QUEUED",
+        },
+      });
+      await enqueue("webhook.deliver", { deliveryId: delivery.id });
+    } catch (err) {
+      console.error("webhook queue failed", event, err);
+    }
   }
 }
 

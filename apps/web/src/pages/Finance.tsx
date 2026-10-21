@@ -1,13 +1,51 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileDown, Plus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Banknote, FileDown, Landmark, Package, Plus, Receipt, Scale, Wallet } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { StkPrompt } from "../components/StkPrompt";
-import { EmptyRow, ExportButtons, Modal, PageHeader, Pager, RowPdf, Stat, StatGrid, Tabs } from "../components/ui";
-import { api, downloadPdf, money } from "../lib/api";
+import { MobileFilters } from "../components/filters";
+import { ModuleNav } from "../components/ModuleNav";
+import { FilterChips, Register, useListSort } from "../components/register";
+import { EmptyRow, ExportButtons, Modal, MteSelect, PageHeader, Pager, RowPdf, Stat, StatGrid, Tabs, mapSelectOptions, seriesByDay, useQueryState } from "../components/ui";
+import { FinanceCoA, FinanceJournalForm, FinanceLedger, FinanceOverview } from "./finance/FinancePanels";
+import { ModuleReportsPanel } from "../components/ModuleReportsPanel";
+import { FinanceApAging, FinanceAgingMatrix, FinanceEnterpriseSection } from "./finance/FinanceEnterprise";
+import { api, downloadPdf, downloadVatKraExport, money } from "../lib/api";
 import { usePager } from "../lib/pager";
 
-type Tab = "invoices" | "payments" | "mpesa" | "bills" | "expenses" | "journals" | "accounts" | "reconciliation";
-type AccountView = "tb" | "pnl" | "bs" | "vat" | "period";
+const FINANCE_SECTIONS = [
+  { id: "overview", label: "Dashboard" },
+  { id: "coa", label: "Chart of accounts" },
+  { id: "journals", label: "Journal entries" },
+  { id: "ledger", label: "General ledger" },
+  { id: "ar", label: "Receivable" },
+  { id: "ap", label: "Payable" },
+  { id: "banking", label: "Banking" },
+  { id: "finreports", label: "Financial reports" },
+  { id: "reports", label: "Statements" },
+  { id: "tax", label: "Tax" },
+  { id: "close", label: "Period close" },
+  { id: "budget", label: "Budgeting" },
+  { id: "assets", label: "Fixed assets" },
+  { id: "currency", label: "Multi-currency" },
+  { id: "audit", label: "Audit", to: "/audit" },
+] as const;
+type FinanceSection = (typeof FINANCE_SECTIONS)[number]["id"];
+
+type MainTab = "invoices" | "collections" | "payments" | "bills" | "accounts";
+type AccountView = "tb" | "pnl" | "bs" | "vat" | "period" | "journals" | "reconcile";
+
+const LEGACY_FINANCE_TAB: Record<string, MainTab> = {
+  mpesa: "payments",
+  expenses: "bills",
+  journals: "accounts",
+  reconciliation: "accounts",
+};
+
+function resolveFinanceTab(raw: string): MainTab {
+  if (["invoices", "collections", "payments", "bills", "accounts"].includes(raw)) return raw as MainTab;
+  return LEGACY_FINANCE_TAB[raw] || "invoices";
+}
 
 type Invoice = {
   id: string;
@@ -22,57 +60,158 @@ type Invoice = {
   customer: { name: string; phone?: string; paymentTerms?: string };
   salesperson?: { name: string } | null;
   payments: { id: string; method: string; amount: number; reference?: string; createdAt: string }[];
+  markupTotal?: number;
+  markupCommission?: number;
+  commissionRate?: number;
   totals: { net: number; vat: number; gross: number; paid: number; credit: number; balance: number };
 };
 
+const LEGACY_FINANCE_SECTION: Record<string, FinanceSection> = {
+  invoices: "ar",
+  collections: "ar",
+  payments: "banking",
+  mpesa: "banking",
+  bills: "ap",
+  expenses: "ap",
+  accounts: "reports",
+  journals: "journals",
+  reconciliation: "reports",
+};
+
 export function Finance() {
-  const [tab, setTab] = useState<Tab>("invoices");
+  const [params] = useSearchParams();
+  const [sectionRaw, setSectionRaw] = useQueryState("section", "overview");
+  const section = (FINANCE_SECTIONS.some((s) => s.id === sectionRaw) ? sectionRaw : "overview") as FinanceSection;
+  const setSection = (next: FinanceSection) => setSectionRaw(next);
+  const [tabRaw, setTabRaw] = useQueryState("tab", "invoices");
+  const tab = resolveFinanceTab(tabRaw);
+  const setTab = (next: MainTab) => setTabRaw(next);
+  const accountsView =
+    section === "tax" ? "vat"
+      : section === "close" ? "period"
+        : section === "reports" ? "pnl"
+          : tabRaw === "journals" ? "journals"
+            : tabRaw === "reconciliation" ? "reconcile"
+              : undefined;
+  const [apView, setApView] = useQueryState("apView", "bills");
   const [modal, setModal] = useState<"pay" | "credit" | "stk" | null>(null);
   const invoices = useQuery({ queryKey: ["invoices"], queryFn: () => api<Invoice[]>("/api/finance/invoices") });
+  const dash = useQuery({ queryKey: ["finance-dashboard"], queryFn: () => api<Record<string, number>>("/api/finance/dashboard") });
+  const pnl = useQuery({ queryKey: ["pnl"], queryFn: () => api<any>("/api/finance/pnl") });
+  const vat = useQuery({ queryKey: ["vat"], queryFn: () => api<any>("/api/finance/vat") });
+
+  useEffect(() => {
+    if (params.has("section")) return;
+    const t = params.get("tab");
+    if (t && LEGACY_FINANCE_SECTION[t]) setSectionRaw(LEGACY_FINANCE_SECTION[t]);
+  }, []);
+
+  useEffect(() => {
+    if (section === "ar") setTabRaw("invoices");
+    if (section === "ap") setTabRaw("bills");
+    if (section === "banking") setTabRaw("payments");
+    if (section === "reports" || section === "tax" || section === "close") setTabRaw("accounts");
+  }, [section, setTabRaw]);
 
   const list = invoices.data || [];
   const unpaid = list.filter((inv) => inv.totals.balance > 0.01);
+  const overdueList = list.filter(isOverdueInvoice);
+  const overdueAmount = overdueList.reduce((s, inv) => s + inv.totals.balance, 0);
+  const overdueSeries = overdueList.slice(0, 12).map((inv) => inv.totals.balance);
   const outstanding = unpaid.reduce((s, inv) => s + inv.totals.balance, 0);
+  const dueBars = unpaid.slice(0, 8).map((inv) => inv.totals.balance);
+  const paid = list.filter((inv) => inv.totals.balance <= 0.01).length;
+  const totalBilled = list.reduce((s, inv) => s + inv.totals.gross, 0);
+  const issued = seriesByDay(list, (inv) => inv.issuedAt, (inv) => inv.totals.gross, 12);
+  const income = pnl.data?.income || 0;
+  const expenses = pnl.data?.expenses || 0;
+  const profit = pnl.data?.net || 0;
+  const vatDue = vat.data?.payable || 0;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 suite-dash">
       <PageHeader eyebrow="Accounts" title="Finance" />
-      <StatGrid>
-        <Stat label="Invoices" value={list.length} />
-        <Stat label="Unpaid" value={unpaid.length} />
-        <Stat label="Paid" value={list.length - unpaid.length} />
-        <Stat label="Outstanding" value={money(outstanding)} />
+      <StatGrid cols={6}>
+        <Stat icon={Wallet} label="Cash & bank" amount={(dash.data?.cashBalance ?? 0)} chart="area" hint="Liquid funds" to="/finance?section=banking" />
+        <Stat icon={Receipt} label="Receivable" amount={dash.data?.accountsReceivable ?? outstanding} series={dueBars} chart="area" hint={`${unpaid.length} unpaid`} to="/finance?section=ar" />
+        <Stat icon={Scale} label="Payable" amount={dash.data?.accountsPayable ?? 0} chart="meter" share={dash.data?.assets ? Math.min(1, (dash.data?.accountsPayable || 0) / dash.data.assets) : 0} to="/finance?section=ap" />
+        <Stat icon={Banknote} label="Net profit" value={money(dash.data?.netProfit ?? profit)} chart="ring" max={Math.max(dash.data?.monthlyRevenue ?? income, 1)} to="/finance?section=reports" />
+        <Stat icon={Landmark} label="Tax due" value={money(dash.data?.taxDue ?? vatDue)} to="/finance?section=tax" />
+        <Stat icon={Package} label="Inventory (GL)" value={money(dash.data?.inventoryValue ?? 0)} hint="Stock asset" to="/inventory" />
       </StatGrid>
-      <Tabs
-        value={tab}
-        onChange={setTab}
-        items={[
-          { id: "invoices", label: "Invoices" },
-          { id: "payments", label: "Payments" },
-          { id: "mpesa", label: "M-Pesa" },
-          { id: "bills", label: "Bills" },
-          { id: "expenses", label: "Expenses" },
-          { id: "journals", label: "Journals" },
-          { id: "accounts", label: "Accounts" },
-          { id: "reconciliation", label: "Reconciliation" },
-        ]}
+      <ModuleNav
+        items={[...FINANCE_SECTIONS]}
+        value={section}
+        onChange={(id) => setSection(id as FinanceSection)}
       />
-      {tab === "invoices" && (
-        <div className="toolbar">
-          <button className="btn-success" onClick={() => setModal("pay")}>Record payment</button>
-          <button className="btn-gold" onClick={() => setModal("stk")}>Send M-Pesa prompt</button>
-          <button className="btn-gold" onClick={() => setModal("credit")}><Plus size={14} /> New credit note</button>
-        </div>
-      )}
 
-      {tab === "invoices" && <InvoiceRegister invoices={invoices.data || []} />}
-      {tab === "payments" && <PaymentsRegister invoices={invoices.data || []} />}
-      {tab === "mpesa" && <MpesaTab invoices={unpaid} />}
-      {tab === "bills" && <BillsTab />}
-      {tab === "expenses" && <ExpensesTab />}
-      {tab === "journals" && <JournalsTab />}
-      {tab === "accounts" && <AccountsTab />}
-      {tab === "reconciliation" && <ReconciliationTab />}
+      {section === "overview" && <FinanceOverview dash={dash.data} />}
+
+      {section === "coa" && <FinanceCoA />}
+      {section === "journals" && <FinanceJournalForm />}
+      {section === "ledger" && <FinanceLedger />}
+      {section === "finreports" && <ModuleReportsPanel moduleId="finance" />}
+
+      {section === "budget" && <FinanceEnterpriseSection kind="budget" />}
+      {section === "assets" && <FinanceEnterpriseSection kind="assets" />}
+      {section === "currency" && <FinanceEnterpriseSection kind="currency" />}
+
+      {(section === "ar" || section === "ap" || section === "banking" || section === "reports" || section === "tax" || section === "close") && (
+        <>
+          {(section === "ar" || section === "banking") && (
+            <div className="toolbar">
+              <button type="button" className="btn-success" onClick={() => setModal("pay")}>Record payment</button>
+              <button type="button" className="btn-gold" onClick={() => setModal("stk")}>Send M-Pesa prompt</button>
+              <button type="button" className="btn-gold" onClick={() => setModal("credit")}><Plus size={14} /> New credit note</button>
+            </div>
+          )}
+          {section === "ar" && (
+            <>
+              <Tabs
+                value={tab === "invoices" || tab === "collections" ? tab : "invoices"}
+                onChange={(t) => setTab(t as MainTab)}
+                items={[
+                  { id: "invoices", label: "Invoices", count: list.length },
+                  { id: "collections", label: "Aging & collect", count: overdueList.length || undefined },
+                ]}
+              />
+              {tab === "invoices" && <InvoiceRegister invoices={invoices.data || []} />}
+              {tab === "collections" && <CollectionsTab />}
+            </>
+          )}
+          {section === "ap" && (
+            <>
+              <Tabs
+                value={apView === "aging" ? "aging" : "bills"}
+                onChange={(v) => setApView(v)}
+                items={[
+                  { id: "bills", label: "Bills & expenses" },
+                  { id: "aging", label: "Supplier aging" },
+                ]}
+              />
+              {apView === "aging" ? <FinanceApAging /> : (
+                <>
+                  <BillsTab />
+                  <ExpensesTab />
+                </>
+              )}
+            </>
+          )}
+          {section === "banking" && (
+            <>
+              <PaymentsRegister invoices={invoices.data || []} />
+              <MpesaTab invoices={unpaid} />
+              <div className="card flex flex-wrap items-center justify-between gap-2">
+                <h3 className="font-semibold">Bank reconciliation</h3>
+                <Link className="btn-gold inline-flex w-fit" to="/finance?section=reports&tab=accounts&view=reconcile">Open bank reconcile</Link>
+              </div>
+            </>
+          )}
+          {(section === "reports" || section === "tax" || section === "close") && (
+            <AccountsTab initialView={accountsView} />
+          )}
+        </>
+      )}
 
       {modal === "stk" && (
         <StkInvoicePicker
@@ -94,7 +233,7 @@ export function Finance() {
 function InvoiceRegister({ invoices }: { invoices: Invoice[] }) {
   const [q, setQ] = useState("");
   const [type, setType] = useState("");
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useQueryState("pay", "");
   const [vat, setVat] = useState("");
   const [when, setWhen] = useState("all");
 
@@ -104,19 +243,26 @@ function InvoiceRegister({ invoices }: { invoices: Invoice[] }) {
       if (q && !hay.includes(q.toLowerCase())) return false;
       if (type && type !== "SALE") return false;
       const paid = inv.totals.balance <= 0.01;
-      const overdue = inv.status === "OVERDUE";
       if (status === "unpaid" && paid) return false;
       if (status === "paid" && !paid) return false;
-      if (status === "overdue" && !overdue) return false;
+      if (status === "overdue" && !isOverdueInvoice(inv)) return false;
       const vatType = inv.vatRate > 0 ? "VAT" : "NON";
       if (vat && vat !== vatType) return false;
       if (!inDateRange(inv.issuedAt, when)) return false;
       return true;
     });
   }, [invoices, q, type, status, vat, when]);
-  const pager = usePager(rows, `${q}|${type}|${status}|${vat}|${when}`);
+  const listing = useListSort(rows, [
+    { id: "date", label: "Newest first", get: (inv) => inv.issuedAt, dir: "desc" },
+    { id: "total", label: "Highest total", get: (inv) => inv.totals.gross, dir: "desc" },
+    { id: "balance", label: "Highest balance", get: (inv) => inv.totals.balance, dir: "desc" },
+    { id: "customer", label: "Customer A–Z", get: (inv) => inv.customer.name, dir: "asc" },
+  ], "date");
+  const pager = usePager(listing.sorted, `${q}|${type}|${status}|${vat}|${when}|${listing.sort}`);
+  const unpaidN = invoices.filter((inv) => inv.totals.balance > 0.01).length;
+  const paidN = invoices.length - unpaidN;
 
-  const headers = ["Document #", "Type", "Customer / supplier", "VAT", "LPO", "Sales person", "Date", "Due", "Total", "Balance", "Credit note", "Status"];
+  const headers = ["Document #", "Type", "Customer / supplier", "VAT", "LPO", "Sales person", "Date", "Due", "Total", "Commission", "Balance", "Credit note", "Status"];
   const exportRows = () =>
     rows.map((inv) => [
       inv.number,
@@ -128,6 +274,7 @@ function InvoiceRegister({ invoices }: { invoices: Invoice[] }) {
       fmtDate(inv.issuedAt),
       inv.dueAt ? fmtDate(inv.dueAt) : "—",
       ksh(inv.totals.gross),
+      inv.markupCommission ? ksh(inv.markupCommission) : "—",
       ksh(inv.totals.balance),
       creditTotal(inv) ? ksh(creditTotal(inv)) : "—",
       inv.status,
@@ -161,6 +308,89 @@ function InvoiceRegister({ invoices }: { invoices: Invoice[] }) {
         <button className="btn-ghost rounded-full" onClick={() => { setQ(""); setType(""); setStatus(""); setVat(""); setWhen("all"); }}>Clear</button>
         <ExportButtons title="Invoices" filename="invoices.csv" headers={headers} rows={exportRows()} />
       </div>
+      <FilterChips
+        value={(status || "all") as "all" | "unpaid" | "paid" | "overdue"}
+        onChange={(v) => setStatus(v === "all" ? "" : v)}
+        items={[
+          { id: "all", label: "All", count: invoices.length },
+          { id: "unpaid", label: "Unpaid", count: unpaidN },
+          { id: "paid", label: "Paid", count: paidN },
+          { id: "overdue", label: "Overdue", count: invoices.filter(isOverdueInvoice).length },
+        ]}
+      />
+      <MobileFilters
+        title="Filter invoices"
+        onClear={() => { setQ(""); setType(""); setStatus(""); setVat(""); setWhen("all"); }}
+        fields={[
+          {
+            kind: "chips",
+            label: "Status",
+            value: status || "all",
+            onChange: (v) => setStatus(v === "all" ? "" : v),
+            options: [
+              { value: "all", label: "All" },
+              { value: "unpaid", label: "Unpaid" },
+              { value: "paid", label: "Paid" },
+              { value: "overdue", label: "Overdue" },
+            ],
+          },
+          {
+            kind: "select",
+            label: "Type",
+            value: type,
+            onChange: setType,
+            options: [{ value: "", label: "All types" }, { value: "SALE", label: "Sale" }],
+          },
+          {
+            kind: "select",
+            label: "VAT",
+            value: vat,
+            onChange: setVat,
+            options: [{ value: "", label: "All VAT types" }, { value: "VAT", label: "VAT" }, { value: "NON", label: "Non-VAT" }],
+          },
+          {
+            kind: "select",
+            label: "Period",
+            value: when,
+            onChange: setWhen,
+            options: [
+              { value: "all", label: "All dates" },
+              { value: "today", label: "Today" },
+              { value: "week", label: "This week" },
+              { value: "month", label: "This month" },
+            ],
+          },
+        ]}
+      />
+      <Register
+        rows={listing.sorted}
+        pager={pager}
+        getId={(inv) => inv.id}
+        empty={{ title: "No invoices yet" }}
+        sort={{ value: listing.sort, onChange: listing.setSort, options: listing.options }}
+        mobile={{
+          title: (inv) => inv.number,
+          subtitle: (inv) => inv.customer.name,
+          status: (inv) => <span className={`badge ${inv.status === "PAID" ? "bg-emerald-100 text-emerald-800" : inv.status === "OVERDUE" ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800"}`}>{inv.status}</span>,
+          fields: [
+            { label: "Date", value: (inv) => fmtDate(inv.issuedAt) },
+            { label: "Total", value: (inv) => ksh(inv.totals.gross), align: "right" },
+            { label: "Balance", value: (inv) => ksh(inv.totals.balance), align: "right" },
+          ],
+          details: (inv) => [
+            { label: "Customer", value: inv.customer.name },
+            { label: "Order", value: inv.orderNumber },
+            { label: "Date", value: fmtDate(inv.issuedAt) },
+            { label: "Due", value: inv.dueAt ? fmtDate(inv.dueAt) : "—" },
+            { label: "Total", value: ksh(inv.totals.gross), align: "right" },
+            { label: "Balance", value: ksh(inv.totals.balance), align: "right" },
+            { label: "Status", value: inv.status },
+          ],
+          actions: (inv) => (
+            <button className="btn-ghost" onClick={() => downloadPdf(inv.orderId, "sale")}><FileDown size={14} /> PDF</button>
+          ),
+        }}
+      >
       <div className="table-wrap">
         <table className="invoice">
           <thead>
@@ -173,15 +403,16 @@ function InvoiceRegister({ invoices }: { invoices: Invoice[] }) {
               <th>Sales person</th>
               <th>Date</th>
               <th>Due</th>
-              <th>Total</th>
-              <th>Balance</th>
-              <th>Credit note</th>
+              <th className="num">Total</th>
+              <th className="num">Commission</th>
+              <th className="num">Balance</th>
+              <th className="num">Credit note</th>
               <th>Status</th>
               <th>PDF</th>
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && <EmptyRow cols={13} label="No invoices match." />}
+            {listing.sorted.length === 0 && <EmptyRow cols={14} label="No invoices match." />}
             {pager.slice.map((inv) => {
               const credit = creditTotal(inv);
               const state = inv.status;
@@ -191,11 +422,7 @@ function InvoiceRegister({ invoices }: { invoices: Invoice[] }) {
                     <span className="font-medium text-ink">{inv.number}</span>
                     <div className="text-[11px] text-stone-400">{inv.orderNumber}</div>
                   </td>
-                  <td>
-                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase text-emerald-700">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Sale
-                    </span>
-                  </td>
+                  <td>Sale</td>
                   <td>{inv.customer.name}</td>
                   <td>
                     {inv.vatRate > 0 ? (
@@ -208,12 +435,13 @@ function InvoiceRegister({ invoices }: { invoices: Invoice[] }) {
                   <td>{inv.salesperson?.name || "—"}</td>
                   <td>{fmtDate(inv.issuedAt)}</td>
                   <td>{inv.dueAt ? fmtDate(inv.dueAt) : "—"}</td>
-                  <td>{ksh(inv.totals.gross)}</td>
-                  <td className={inv.totals.balance > 0.01 ? "text-amber-600" : "text-emerald-700"}>{ksh(inv.totals.balance)}</td>
-                  <td className="text-stone-400">{credit ? ksh(credit) : "—"}</td>
+                  <td className="num">{ksh(inv.totals.gross)}</td>
+                  <td className="num text-emerald-800">{inv.markupCommission ? ksh(inv.markupCommission) : "—"}</td>
+                  <td className="num">{ksh(inv.totals.balance)}</td>
+                  <td className="num text-stone-400">{credit ? ksh(credit) : "—"}</td>
                   <td>
-                    <span className={`text-xs font-semibold uppercase ${
-                      state === "PAID" ? "text-emerald-600" : state === "OVERDUE" ? "text-red-600" : "text-amber-500"
+                    <span className={`badge ${
+                      state === "PAID" ? "bg-emerald-100 text-emerald-800" : state === "OVERDUE" ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800"
                     }`}>{state}</span>
                   </td>
                   <td>
@@ -227,7 +455,7 @@ function InvoiceRegister({ invoices }: { invoices: Invoice[] }) {
           </tbody>
         </table>
       </div>
-      <Pager {...pager} />
+      </Register>
     </div>
   );
 }
@@ -244,6 +472,7 @@ function BillsTab() {
     },
   });
   const rows = bills.data || [];
+  const pager = usePager(rows, rows.length);
   return (
     <div className="space-y-3">
       {pay.error && <p className="text-sm text-red-600">{(pay.error as Error).message}</p>}
@@ -263,7 +492,7 @@ function BillsTab() {
           </thead>
           <tbody>
             {rows.length === 0 && <EmptyRow cols={8} label="No vendor bills yet. Receive a purchase order first." />}
-            {rows.map((b) => (
+            {pager.slice.map((b) => (
               <tr key={b.id}>
                 <td className="font-semibold">{b.number}</td>
                 <td>{b.vendor?.name}</td>
@@ -293,24 +522,32 @@ function BillsTab() {
           </tbody>
         </table>
       </div>
+      <Pager {...pager} />
     </div>
   );
 }
 
 function PaymentsRegister({ invoices }: { invoices: Invoice[] }) {
+  const qc = useQueryClient();
   const [q, setQ] = useState("");
+  const [method, setMethod] = useState("");
   const rows = useMemo(() => {
     return invoices
       .flatMap((inv) => (inv.payments || []).map((p) => ({ ...p, invoice: inv })))
-      .filter((p) => `${p.invoice.number} ${p.invoice.customer.name} ${p.method} ${p.reference || ""}`.toLowerCase().includes(q.toLowerCase()))
+      .filter((p) => {
+        if (!`${p.invoice.number} ${p.invoice.customer.name} ${p.method} ${p.reference || ""}`.toLowerCase().includes(q.toLowerCase())) return false;
+        if (method && p.method !== method) return false;
+        return true;
+      })
       .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
-  }, [invoices, q]);
+  }, [invoices, q, method]);
+  const pager = usePager(rows, `${q}|${method}`);
   const headers = ["Date", "Invoice", "Customer", "Method", "Reference", "Amount"];
   return (
     <div className="space-y-3">
       <div className="toolbar">
         <input className="min-w-[220px] flex-1" placeholder="Search payments…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <button className="btn-ghost" onClick={() => setQ("")}>Clear</button>
+        <button className="btn-ghost" onClick={() => { setQ(""); setMethod(""); }}>Clear</button>
         <ExportButtons
           title="Payments"
           filename="payments.csv"
@@ -318,12 +555,31 @@ function PaymentsRegister({ invoices }: { invoices: Invoice[] }) {
           rows={rows.map((p) => [fmtDate(p.createdAt), p.invoice.number, p.invoice.customer.name, p.method, p.reference || "", String(p.amount)])}
         />
       </div>
+      <MobileFilters
+        title="Filter payments"
+        onClear={() => { setQ(""); setMethod(""); }}
+        fields={[
+          {
+            kind: "chips",
+            label: "Method",
+            value: method || "all",
+            onChange: (v) => setMethod(v === "all" ? "" : v),
+            options: [
+              { value: "all", label: "All" },
+              ...[...new Set(invoices.flatMap((inv) => (inv.payments || []).map((p) => p.method)))].map((m) => ({
+                value: m,
+                label: m.replace(/_/g, " "),
+              })),
+            ],
+          },
+        ]}
+      />
       <div className="table-wrap">
         <table className="invoice">
-          <thead><tr><th>Date</th><th>Invoice</th><th>Customer</th><th>Method</th><th>Reference</th><th>Amount</th><th>PDF</th></tr></thead>
+          <thead><tr><th>Date</th><th>Invoice</th><th>Customer</th><th>Method</th><th>Reference</th><th>Amount</th><th>PDF</th><th></th></tr></thead>
           <tbody>
-            {rows.length === 0 && <EmptyRow cols={7} label="No payments yet." />}
-            {rows.map((p) => (
+            {rows.length === 0 && <EmptyRow cols={8} label="No payments yet." />}
+            {pager.slice.map((p) => (
               <tr key={p.id}>
                 <td>{fmtDate(p.createdAt)}</td>
                 <td className="font-semibold">{p.invoice.number}</td>
@@ -344,17 +600,37 @@ function PaymentsRegister({ invoices }: { invoices: Invoice[] }) {
                     ]}
                   />
                 </td>
+                <td>
+                  {p.method !== "CREDIT_NOTE" && (
+                    <button
+                      type="button"
+                      className="btn-danger px-2 py-1 text-xs"
+                      onClick={() => {
+                        const reason = prompt("Reason to void this payment") || "";
+                        if (!reason) return;
+                        api(`/api/finance/payments/${p.id}/void`, { method: "POST", body: JSON.stringify({ reason }) })
+                          .then(() => qc.invalidateQueries())
+                          .catch((err) => alert((err as Error).message));
+                      }}
+                    >
+                      Void
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      <Pager {...pager} />
     </div>
   );
 }
 
 function ExpensesTab() {
   const exp = useQuery({ queryKey: ["exp"], queryFn: () => api<any[]>("/api/finance/expenses") });
+  const rows = exp.data || [];
+  const pager = usePager(rows, rows.length);
   const qc = useQueryClient();
   const addExp = useMutation({
     mutationFn: (body: Record<string, unknown>) => api("/api/finance/expenses", { method: "POST", body: JSON.stringify(body) }),
@@ -406,9 +682,10 @@ function ExpensesTab() {
       </form>
       <div className="table-wrap lg:col-span-2">
         <table className="invoice">
-          <thead><tr><th>Date</th><th>Category</th><th>Amount</th><th>VAT</th><th>PDF</th></tr></thead>
+          <thead><tr><th>Date</th><th>Category</th><th>Amount</th><th>VAT</th><th>PDF</th><th></th></tr></thead>
           <tbody>
-            {exp.data?.map((e) => (
+            {rows.length === 0 && <EmptyRow cols={6} label="No expenses recorded yet." />}
+            {pager.slice.map((e) => (
               <tr key={e.id}>
                 <td>{e.date.slice(0, 10)}</td>
                 <td>{e.category}</td>
@@ -426,11 +703,27 @@ function ExpensesTab() {
                     ]}
                   />
                 </td>
+                <td>
+                  <button
+                    type="button"
+                    className="btn-danger px-2 py-1 text-xs"
+                    onClick={() => {
+                      const reason = prompt("Reason to delete this expense") || "";
+                      if (!reason) return;
+                      api(`/api/finance/expenses/${e.id}`, { method: "DELETE", body: JSON.stringify({ reason }) })
+                        .then(() => qc.invalidateQueries())
+                        .catch((err) => alert((err as Error).message));
+                    }}
+                  >
+                    Delete
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      <div className="lg:col-span-3"><Pager {...pager} /></div>
     </div>
   );
 }
@@ -467,8 +760,13 @@ function JournalsTab() {
   );
 }
 
-function AccountsTab() {
-  const [view, setView] = useState<AccountView>("tb");
+function AccountsTab({ initialView }: { initialView?: AccountView }) {
+  const [viewParam] = useQueryState("view", "");
+  const [view, setView] = useState<AccountView>(initialView || "pnl");
+  useEffect(() => {
+    if (viewParam === "reconcile") setView("reconcile");
+    else if (initialView) setView(initialView);
+  }, [viewParam, initialView]);
   const tb = useQuery({ queryKey: ["tb"], queryFn: () => api<any>("/api/finance/trial-balance") });
   const pnl = useQuery({ queryKey: ["pnl"], queryFn: () => api<any>("/api/finance/pnl") });
   const bs = useQuery({ queryKey: ["bs"], queryFn: () => api<any>("/api/finance/balance-sheet") });
@@ -477,20 +775,16 @@ function AccountsTab() {
   const qc = useQueryClient();
   return (
     <div className="space-y-4">
-      <StatGrid>
-        <Stat label="Income" value={money(pnl.data?.income)} />
-        <Stat label="Net profit" value={money(pnl.data?.net)} />
-        <Stat label="Expenses" value={money(pnl.data?.expenses)} />
-        <Stat label="VAT payable" value={money(vat.data?.payable)} />
-      </StatGrid>
       <Tabs
         value={view}
         onChange={setView}
         items={[
-          { id: "tb", label: "Trial balance" },
-          { id: "pnl", label: "P&L" },
+          { id: "pnl", label: "Profit & loss" },
           { id: "bs", label: "Balance sheet" },
           { id: "vat", label: "VAT return" },
+          { id: "tb", label: "Trial balance" },
+          { id: "journals", label: "Journals" },
+          { id: "reconcile", label: "Bank reconcile" },
           { id: "period", label: "Period close" },
         ]}
       />
@@ -552,9 +846,14 @@ function AccountsTab() {
           <Row l="Output VAT" v={vat.data.output} />
           <Row l="Input VAT" v={vat.data.input} />
           <Row l="Net payable" v={vat.data.payable} bold />
+          <button type="button" className="btn-gold mt-3 text-sm" onClick={() => downloadVatKraExport().catch((e) => alert(e.message))}>
+            Download KRA VAT CSV
+          </button>
         </div>
       )}
       {view === "period" && <PeriodClose rows={periods.data || []} onDone={() => qc.invalidateQueries({ queryKey: ["periods"] })} />}
+      {view === "journals" && <JournalsTab />}
+      {view === "reconcile" && <ReconciliationTab />}
     </div>
   );
 }
@@ -574,6 +873,18 @@ function MoneyModal({
   invoices: Invoice[];
   onClose: () => void;
 }) {
+  const [invoiceId, setInvoiceId] = useState("");
+  const [method, setMethod] = useState("CASH");
+  const invoiceOptions = useMemo(
+    () =>
+      mapSelectOptions(
+        invoices,
+        (inv) => inv.id,
+        (inv) => inv.number,
+        (inv) => `${inv.customer.name} · ${money(inv.totals.balance)} due`,
+      ),
+    [invoices],
+  );
   const qc = useQueryClient();
   const save = useMutation({
     mutationFn: (body: { id: string; amount: number; method: string; reference?: string }) =>
@@ -592,9 +903,9 @@ function MoneyModal({
           e.preventDefault();
           const fd = new FormData(e.currentTarget);
           save.mutate({
-            id: String(fd.get("id")),
+            id: invoiceId,
             amount: Number(fd.get("amount")),
-            method: kind === "credit" ? "CREDIT_NOTE" : String(fd.get("method")),
+            method: kind === "credit" ? "CREDIT_NOTE" : method,
             reference: String(fd.get("reference") || ""),
           });
         }}
@@ -602,12 +913,14 @@ function MoneyModal({
         <h3 className="font-semibold">{kind === "credit" ? "New credit note" : "Record payment"}</h3>
         <div>
           <label>Invoice</label>
-          <select name="id" required>
-            <option value="">Select…</option>
-            {invoices.map((inv) => (
-              <option key={inv.id} value={inv.id}>{inv.number} · {inv.customer.name} · {money(inv.totals.balance)} due</option>
-            ))}
-          </select>
+          <MteSelect
+            aria-label="Invoice"
+            value={invoiceId}
+            onChange={setInvoiceId}
+            options={invoiceOptions}
+            placeholder="Select invoice…"
+            required
+          />
         </div>
         <div>
           <label>Amount</label>
@@ -617,11 +930,17 @@ function MoneyModal({
           <>
             <div>
               <label>Method</label>
-              <select name="method">
-                <option value="CASH">Cash</option>
-                <option value="MPESA">M-Pesa</option>
-                <option value="BANK">Bank</option>
-              </select>
+              <MteSelect
+                aria-label="Payment method"
+                value={method}
+                onChange={setMethod}
+                allowEmpty={false}
+                options={[
+                  { value: "CASH", label: "Cash" },
+                  { value: "MPESA", label: "M-Pesa" },
+                  { value: "BANK", label: "Bank" },
+                ]}
+              />
             </div>
             <div>
               <label>Reference</label>
@@ -646,6 +965,16 @@ function MoneyModal({
 
 function StkInvoicePicker({ invoices, onClose }: { invoices: Invoice[]; onClose: () => void }) {
   const [invoiceId, setInvoiceId] = useState("");
+  const invoiceOptions = useMemo(
+    () =>
+      mapSelectOptions(
+        invoices,
+        (i) => i.id,
+        (i) => i.number,
+        (i) => `${i.customer.name} · ${money(i.totals.balance)}`,
+      ),
+    [invoices],
+  );
   const inv = invoices.find((i) => i.id === invoiceId);
   if (!invoices.length) {
     return (
@@ -671,19 +1000,20 @@ function StkInvoicePicker({ invoices, onClose }: { invoices: Invoice[]; onClose:
         className="space-y-3"
         onSubmit={(e) => {
           e.preventDefault();
-          const fd = new FormData(e.currentTarget);
-          setInvoiceId(String(fd.get("invoiceId")));
+          if (!invoiceId) return;
         }}
       >
         <h3 className="font-semibold">Send M-Pesa prompt</h3>
         <div>
           <label>Invoice</label>
-          <select name="invoiceId" required defaultValue="">
-            <option value="">Select…</option>
-            {invoices.map((i) => (
-              <option key={i.id} value={i.id}>{i.number} · {i.customer.name} · {money(i.totals.balance)}</option>
-            ))}
-          </select>
+          <MteSelect
+            aria-label="Invoice"
+            value={invoiceId}
+            onChange={setInvoiceId}
+            options={invoiceOptions}
+            placeholder="Select invoice…"
+            required
+          />
         </div>
         <div className="flex justify-end gap-2">
           <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
@@ -694,12 +1024,84 @@ function StkInvoicePicker({ invoices, onClose }: { invoices: Invoice[]; onClose:
   );
 }
 
+function CollectionsTab() {
+  const [bucket, setBucket] = useState("");
+  const { data } = useQuery({ queryKey: ["collections"], queryFn: () => api<any>("/api/reports/collections") });
+  const rows = (data?.rows || []).filter((r: any) => !bucket || r.bucket === bucket);
+  const pager = usePager(rows, bucket);
+  const summary = data?.summary;
+
+  return (
+    <div className="space-y-3">
+      <FinanceAgingMatrix matrix={data?.agingMatrix} />
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="card"><div className="text-xs uppercase text-stone-400">Outstanding</div><div className="text-xl font-semibold">{money(summary?.total)}</div></div>
+        <div className="card"><div className="text-xs uppercase text-stone-400">Overdue</div><div className="text-xl font-semibold text-rose-700">{money(summary?.overdueAmount)}</div><div className="text-xs text-stone-500">{summary?.overdue || 0} invoices</div></div>
+        <div className="card"><div className="text-xs uppercase text-stone-400">Not yet due</div><div className="text-xl font-semibold">{summary?.current || 0} invoices</div></div>
+      </div>
+      <div className="toolbar">
+        <select className="w-auto rounded-full" value={bucket} onChange={(e) => setBucket(e.target.value)}>
+          <option value="">All buckets</option>
+          <option value="30+">30+ days</option>
+          <option value="30">8–30 days</option>
+          <option value="14">8–14 days</option>
+          <option value="7">1–7 days</option>
+          <option value="current">Not yet due</option>
+        </select>
+      </div>
+      <div className="table-wrap">
+        <table className="invoice">
+          <thead>
+            <tr>
+              <th>Invoice</th><th>Customer</th><th>Sales</th><th>Due</th><th className="num">Balance</th><th>Age</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && <EmptyRow cols={7} label="No outstanding invoices." />}
+            {pager.slice.map((r: any) => (
+              <tr key={r.id}>
+                <td className="font-medium">{r.number}</td>
+                <td>{r.customer}</td>
+                <td>{r.salesperson}</td>
+                <td>{r.dueAt ? new Date(r.dueAt).toLocaleDateString("en-GB") : "—"}</td>
+                <td className="num font-medium">{money(r.balance)}</td>
+                <td>{r.daysOverdue > 0 ? `${r.daysOverdue}d overdue` : "Current"}</td>
+                <td>
+                  <div className="flex flex-wrap gap-1">
+                    {r.mailto ? <a className="btn-ghost px-2 py-1 text-xs" href={r.mailto}>Email reminder</a> : null}
+                    <a className="btn-ghost px-2 py-1 text-xs" href={`/sales/${r.orderId}`}>Open</a>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <Pager {...pager} />
+    </div>
+  );
+}
+
 function MpesaTab({ invoices }: { invoices: Invoice[] }) {
   const qc = useQueryClient();
+  const [viewReconcile] = useQueryState("view", "");
   const status = useQuery({ queryKey: ["mpesa-status"], queryFn: () => api<any>("/api/mpesa/status") });
   const txns = useQuery({ queryKey: ["mpesa-txns"], queryFn: () => api<any[]>("/api/mpesa/transactions") });
+  const reconcile = useQuery({ queryKey: ["mpesa-reconcile"], queryFn: () => api<any>("/api/reports/mpesa-reconcile") });
   const [stk, setStk] = useState<Invoice | null>(null);
   const [alloc, setAlloc] = useState<any>(null);
+  const [allocInvoiceId, setAllocInvoiceId] = useState("");
+  const [payoutCommand, setPayoutCommand] = useState("BusinessPayment");
+  const allocInvoiceOptions = useMemo(
+    () =>
+      mapSelectOptions(
+        invoices,
+        (inv) => inv.id,
+        (inv) => inv.number,
+        (inv) => `${inv.customer.name} · ${money(inv.totals.balance)}`,
+      ),
+    [invoices],
+  );
   const balance = useMutation({
     mutationFn: () => api("/api/mpesa/balance", { method: "POST", body: "{}" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["mpesa-txns"] }),
@@ -724,9 +1126,24 @@ function MpesaTab({ invoices }: { invoices: Invoice[] }) {
     },
   });
   const ready = status.data?.stkReady;
+  const txnRows = txns.data || [];
+  const txnPager = usePager(txnRows, txnRows.length);
+
+  const rs = reconcile.data?.summary;
 
   return (
     <div className="space-y-4">
+      {(viewReconcile === "reconcile" || rs?.unallocated || rs?.pendingStk) && reconcile.data && (
+        <div className="card space-y-3">
+          <h3 className="font-semibold">Daily reconciliation</h3>
+          <div className="grid gap-2 sm:grid-cols-4 text-sm">
+            <div><span className="text-stone-500">Unallocated</span><div className="font-semibold">{rs.unallocated} · {money(rs.unallocatedAmount)}</div></div>
+            <div><span className="text-stone-500">Pending STK</span><div className="font-semibold">{rs.pendingStk}</div></div>
+            <div><span className="text-stone-500">Failed</span><div className="font-semibold">{rs.failed}</div></div>
+            <div><span className="text-stone-500">Duplicate receipts</span><div className="font-semibold">{rs.duplicates}</div></div>
+          </div>
+        </div>
+      )}
       <div className="card flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="font-semibold">Daraja</div>
@@ -770,17 +1187,23 @@ function MpesaTab({ invoices }: { invoices: Invoice[] }) {
           onSubmit={(e) => {
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
-            payout.mutate({ phone: fd.get("phone"), amount: Number(fd.get("amount")), remarks: fd.get("remarks"), command: fd.get("command") });
+            payout.mutate({ phone: fd.get("phone"), amount: Number(fd.get("amount")), remarks: fd.get("remarks"), command: payoutCommand });
           }}
         >
           <h3 className="font-semibold">Send money (B2C)</h3>
           <input name="phone" placeholder="07…" required />
           <input name="amount" type="number" placeholder="Amount" required />
-          <select name="command">
-            <option value="BusinessPayment">Business payment</option>
-            <option value="SalaryPayment">Salary</option>
-            <option value="PromotionPayment">Promotion</option>
-          </select>
+          <MteSelect
+            aria-label="Payment type"
+            value={payoutCommand}
+            onChange={setPayoutCommand}
+            allowEmpty={false}
+            options={[
+              { value: "BusinessPayment", label: "Business payment" },
+              { value: "SalaryPayment", label: "Salary" },
+              { value: "PromotionPayment", label: "Promotion" },
+            ]}
+          />
           <input name="remarks" placeholder="Remarks" />
           {payout.error && <p className="text-sm text-red-600">{(payout.error as Error).message}</p>}
           <button className="btn-gold" disabled={payout.isPending}>Send</button>
@@ -809,8 +1232,8 @@ function MpesaTab({ invoices }: { invoices: Invoice[] }) {
             </tr>
           </thead>
           <tbody>
-            {(txns.data || []).length === 0 && <EmptyRow cols={8} label="No M-Pesa activity yet." />}
-            {(txns.data || []).map((t) => (
+            {txnRows.length === 0 && <EmptyRow cols={8} label="No M-Pesa activity yet." />}
+            {txnPager.slice.map((t) => (
               <tr key={t.id}>
                 <td>{new Date(t.createdAt).toLocaleString("en-GB")}</td>
                 <td>{t.kind}</td>
@@ -829,6 +1252,7 @@ function MpesaTab({ invoices }: { invoices: Invoice[] }) {
           </tbody>
         </table>
       </div>
+      <Pager {...txnPager} />
       {stk && (
         <StkPrompt
           invoiceId={stk.id}
@@ -838,22 +1262,23 @@ function MpesaTab({ invoices }: { invoices: Invoice[] }) {
         />
       )}
       {alloc && (
-        <Modal onClose={() => setAlloc(null)}>
+        <Modal onClose={() => { setAlloc(null); setAllocInvoiceId(""); }}>
           <form
             className="space-y-3"
             onSubmit={(e) => {
               e.preventDefault();
-              const fd = new FormData(e.currentTarget);
-              allocate.mutate({ id: alloc.id, invoiceId: String(fd.get("invoiceId")) });
+              allocate.mutate({ id: alloc.id, invoiceId: allocInvoiceId });
             }}
           >
             <h3 className="font-semibold">Allocate {alloc.receipt}</h3>
-            <select name="invoiceId" required>
-              <option value="">Invoice…</option>
-              {invoices.map((inv) => (
-                <option key={inv.id} value={inv.id}>{inv.number} · {inv.customer.name} · {money(inv.totals.balance)}</option>
-              ))}
-            </select>
+            <MteSelect
+              aria-label="Invoice"
+              value={allocInvoiceId}
+              onChange={setAllocInvoiceId}
+              options={allocInvoiceOptions}
+              placeholder="Select invoice…"
+              required
+            />
             {allocate.error && <p className="text-sm text-red-600">{(allocate.error as Error).message}</p>}
             <div className="flex justify-end gap-2">
               <button type="button" className="btn-ghost" onClick={() => setAlloc(null)}>Cancel</button>
@@ -904,10 +1329,17 @@ function BankRec({ data, onDone }: { data: any; onDone: () => void }) {
   });
   if (!data) return <p>Loading…</p>;
   return (
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="card"><div className="text-xs uppercase text-stone-400">Book cash (GL)</div><div className="text-xl font-semibold">{money(data.bookCashGL)}</div></div>
+      </div>
     <div className="grid gap-4 lg:grid-cols-2">
       {data.banks?.map((b: any) => (
         <div key={b.id} className="card space-y-3">
-          <h3 className="font-semibold">{b.name}</h3>
+          <div className="flex flex-wrap justify-between gap-2">
+            <h3 className="font-semibold">{b.name}</h3>
+            <span className="text-xs text-stone-500">GL {money(b.bookBalanceGL)} · Stmt {money(b.statementTotal)} · Var {money(b.variance)}</span>
+          </div>
           <form
             className="grid grid-cols-1 gap-2 sm:grid-cols-3"
             onSubmit={(e) => {
@@ -953,7 +1385,11 @@ function BankRec({ data, onDone }: { data: any; onDone: () => void }) {
             </div>
           );
         })}
+        {(data.unmatchedVendorPayments || []).length > 0 && (
+          <p className="text-xs text-stone-500">{data.unmatchedVendorPayments.length} supplier payments recorded — statement import will link these in a later release.</p>
+        )}
       </div>
+    </div>
     </div>
   );
 }
@@ -1016,6 +1452,12 @@ function startOfToday() {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   return d;
+}
+
+function isOverdueInvoice(inv: Invoice) {
+  if (inv.totals.balance <= 0.01) return false;
+  if (inv.status === "OVERDUE") return true;
+  return !!(inv.dueAt && new Date(inv.dueAt) < new Date());
 }
 
 function fmtDate(value: string | Date) {

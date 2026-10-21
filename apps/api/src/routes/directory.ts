@@ -1,16 +1,21 @@
 import { Router } from "express";
+import { createHash, randomInt } from "node:crypto";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/audit.js";
+import { hashPassword } from "../lib/auth.js";
+import { queueApproval } from "../lib/approval-request.js";
 import { canBypassApproval } from "../lib/auth.js";
 import { roles, moduleAccess } from "../middleware/auth.js";
 import { ROLE_MODULES, publicUser } from "../lib/access.js";
-import { ensureCompany } from "../lib/sequence.js";
+import { ensureCompany, ensureCustomerNumbers, nextCustomerNumber } from "../lib/sequence.js";
 import { buildCustomerStatementPdf } from "../lib/pdf.js";
 import { cacheDel, destroyUserSessions } from "../lib/redis.js";
+import { customerOutstanding } from "../lib/credit.js";
 
 export const directoryRouter = Router();
 
 directoryRouter.get("/customers", moduleAccess("customers", "sales"), async (_req, res) => {
+  await ensureCustomerNumbers();
   const customers = await prisma.customer.findMany({
     include: { orders: { include: { lines: true, payments: true } } },
     orderBy: { name: "asc" },
@@ -28,6 +33,15 @@ directoryRouter.get("/customers", moduleAccess("customers", "sales"), async (_re
       return { ...c, orders: undefined, outstanding: Math.round(owed * 100) / 100 };
     })
   );
+});
+
+directoryRouter.get("/customers/:id/credit", moduleAccess("customers", "sales"), async (req, res) => {
+  const c = await prisma.customer.findUnique({ where: { id: req.params.id } });
+  if (!c) return res.status(404).json({ error: "Customer not found" });
+  const outstanding = await customerOutstanding(c.id);
+  const available = c.creditLimit > 0 ? Math.max(0, Math.round((c.creditLimit - outstanding) * 100) / 100) : null;
+  const blocked = c.creditLimit > 0 && outstanding >= c.creditLimit;
+  res.json({ customerId: c.id, creditLimit: c.creditLimit, outstanding, available, blocked, paymentTerms: c.paymentTerms });
 });
 
 directoryRouter.get("/customers/:id", moduleAccess("customers", "sales"), async (req, res) => {
@@ -139,8 +153,10 @@ directoryRouter.get("/customers/:id/statement.pdf", moduleAccess("customers", "s
 });
 
 directoryRouter.post("/customers", moduleAccess("customers", "sales"), async (req, res) => {
+  const customerNumber = await nextCustomerNumber();
   const c = await prisma.customer.create({
     data: {
+      customerNumber,
       name: req.body.name,
       phone: req.body.phone,
       email: req.body.email,
@@ -157,36 +173,79 @@ directoryRouter.post("/customers", moduleAccess("customers", "sales"), async (re
 directoryRouter.patch("/customers/:id", moduleAccess("customers", "sales"), async (req, res) => {
   const existing = await prisma.customer.findUnique({ where: { id: req.params.id } });
   if (!existing) return res.status(404).json({ error: "Not found" });
-  if (req.body.creditLimit != null && Number(req.body.creditLimit) > existing.creditLimit) {
-    if (!canBypassApproval(req.user!.role)) {
-      const approval = await prisma.approval.create({
-        data: {
-          type: "CREDIT_OVERRIDE",
-          entity: "Customer",
-          entityId: existing.id,
-          oldValue: JSON.stringify({ creditLimit: existing.creditLimit }),
-          newValue: JSON.stringify({ creditLimit: Number(req.body.creditLimit) }),
-          reason: req.body.reason || "Increase credit limit",
-          requesterId: req.user!.id,
-        },
-      });
-      return res.status(202).json({ pending: true, approval });
-    }
+  const proposed = {
+    name: req.body.name ?? existing.name,
+    phone: req.body.phone ?? existing.phone,
+    email: req.body.email ?? existing.email,
+    kraPin: req.body.kraPin ?? existing.kraPin,
+    creditLimit: req.body.creditLimit != null ? Number(req.body.creditLimit) : existing.creditLimit,
+    paymentTerms: req.body.paymentTerms ?? existing.paymentTerms,
+    notes: req.body.notes ?? existing.notes,
+  };
+  const changed = JSON.stringify(proposed) !== JSON.stringify({
+    name: existing.name,
+    phone: existing.phone,
+    email: existing.email,
+    kraPin: existing.kraPin,
+    creditLimit: existing.creditLimit,
+    paymentTerms: existing.paymentTerms,
+    notes: existing.notes,
+  });
+  if (!changed) return res.json(existing);
+
+  if (!canBypassApproval(req.user!.role)) {
+    const creditOnly =
+      proposed.creditLimit !== existing.creditLimit &&
+      proposed.name === existing.name &&
+      proposed.phone === existing.phone &&
+      proposed.email === existing.email &&
+      proposed.kraPin === existing.kraPin &&
+      proposed.paymentTerms === existing.paymentTerms &&
+      proposed.notes === existing.notes &&
+      proposed.creditLimit > existing.creditLimit;
+    if (creditOnly) {
+      if (await queueApproval(req, res, {
+        type: "CREDIT_OVERRIDE",
+        entity: "Customer",
+        entityId: existing.id,
+        oldValue: { creditLimit: existing.creditLimit },
+        newValue: { creditLimit: proposed.creditLimit },
+        reason: req.body.reason || "Increase credit limit",
+      })) return;
+    } else if (await queueApproval(req, res, {
+      type: "EDIT_CUSTOMER",
+      entity: "Customer",
+      entityId: existing.id,
+      oldValue: existing,
+      newValue: proposed,
+      reason: String(req.body.reason || `Update customer ${existing.name}`),
+    })) return;
   }
+
   const next = await prisma.customer.update({
     where: { id: existing.id },
-    data: {
-      name: req.body.name ?? existing.name,
-      phone: req.body.phone ?? existing.phone,
-      email: req.body.email ?? existing.email,
-      kraPin: req.body.kraPin ?? existing.kraPin,
-      creditLimit: req.body.creditLimit != null ? Number(req.body.creditLimit) : existing.creditLimit,
-      paymentTerms: req.body.paymentTerms ?? existing.paymentTerms,
-      notes: req.body.notes ?? existing.notes,
-    },
+    data: proposed,
   });
   await audit(req, { entity: "Customer", entityId: next.id, action: "UPDATE", oldValue: existing, newValue: next });
   res.json(next);
+});
+
+directoryRouter.delete("/customers/:id", moduleAccess("customers", "sales"), async (req, res) => {
+  const existing = await prisma.customer.findUnique({ where: { id: req.params.id } });
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  const used = await prisma.order.count({ where: { customerId: existing.id } });
+  if (used) return res.status(400).json({ error: "This customer has sales orders. They cannot be deleted." });
+  if (await queueApproval(req, res, {
+    type: "DELETE_CUSTOMER",
+    entity: "Customer",
+    entityId: existing.id,
+    oldValue: existing,
+    newValue: { deleted: true },
+    reason: String(req.body?.reason || `Remove customer ${existing.name}`),
+  })) return;
+  await prisma.customer.delete({ where: { id: existing.id } });
+  await audit(req, { entity: "Customer", entityId: existing.id, action: "DELETE", oldValue: existing });
+  res.json({ ok: true });
 });
 
 directoryRouter.get("/vendors", moduleAccess("vendors", "procurement"), async (_req, res) => {
@@ -248,6 +307,37 @@ directoryRouter.patch("/users/:id", moduleAccess("hr", "staff"), async (req, res
   if (existing.role === "SUPER_ADMIN" && req.user!.role !== "SUPER_ADMIN") {
     return res.status(403).json({ error: "You cannot edit Super Admin" });
   }
+  const sensitive: Record<string, unknown> = {};
+  if (req.body.salary != null && Number(req.body.salary) !== existing.salary) sensitive.salary = Number(req.body.salary);
+  if (req.body.commissionRate != null && Number(req.body.commissionRate) !== existing.commissionRate) {
+    sensitive.commissionRate = Number(req.body.commissionRate);
+  }
+  if (typeof req.body.active === "boolean" && req.body.active === false && existing.active) sensitive.active = false;
+  if (Object.keys(sensitive).length && await queueApproval(req, res, {
+    type: "USER_SENSITIVE",
+    entity: "User",
+    entityId: existing.id,
+    oldValue: { salary: existing.salary, commissionRate: existing.commissionRate, active: existing.active },
+    newValue: sensitive,
+    reason: String(req.body.reason || `Change pay or access for ${existing.name}`),
+  })) {
+    await prisma.user.update({
+      where: { id: existing.id },
+      data: {
+        name: req.body.name ?? undefined,
+        monthlyTarget: req.body.monthlyTarget != null ? Number(req.body.monthlyTarget) : undefined,
+        role: req.body.role || undefined,
+        department: req.body.department ?? undefined,
+        modules: Array.isArray(req.body.modules) ? JSON.stringify(Array.from(new Set(["dashboard", ...req.body.modules]))) : undefined,
+        phone: req.body.phone ?? undefined,
+        jobTitle: req.body.jobTitle ?? undefined,
+        nationalId: req.body.nationalId ?? undefined,
+        hireDate: req.body.hireDate === "" || req.body.hireDate === null ? null : req.body.hireDate ? new Date(req.body.hireDate) : undefined,
+        branchId: req.body.branchId === "" ? null : req.body.branchId ?? undefined,
+      },
+    });
+    return;
+  }
   const next = await prisma.user.update({
     where: { id: existing.id },
     data: {
@@ -270,4 +360,29 @@ directoryRouter.patch("/users/:id", moduleAccess("hr", "staff"), async (req, res
   if (req.body.role || req.body.modules || req.body.active === false) await destroyUserSessions(next.id);
   await audit(req, { entity: "User", entityId: next.id, action: "UPDATE", oldValue: { role: existing.role, modules: existing.modules }, newValue: { role: next.role, modules: next.modules } });
   res.json({ ...publicUser(next), active: next.active, salary: next.salary, monthlyTarget: next.monthlyTarget, commissionRate: next.commissionRate, branchId: next.branchId });
+});
+
+directoryRouter.post("/users/:id/reset-code", moduleAccess("hr", "staff"), async (req, res) => {
+  const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+  if (!user) return res.status(404).json({ error: "Employee not found" });
+  const code = String(randomInt(100000, 999999));
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { resetToken: createHash("sha256").update(code).digest("hex"), resetExpires: new Date(Date.now() + 30 * 60 * 1000) },
+  });
+  await audit(req, { entity: "User", entityId: user.id, action: "ISSUE_RESET_CODE" });
+  res.json({ code, expiresInMinutes: 30 });
+});
+
+directoryRouter.post("/users/:id/temp-password", moduleAccess("hr", "staff"), async (req, res) => {
+  const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+  if (!user) return res.status(404).json({ error: "Employee not found" });
+  if (user.role === "SUPER_ADMIN" && req.user!.role !== "SUPER_ADMIN") {
+    return res.status(403).json({ error: "You cannot reset Super Admin" });
+  }
+  const password = `Mte@${randomInt(100000, 999999)}`;
+  await prisma.user.update({ where: { id: user.id }, data: { passwordHash: await hashPassword(password), resetToken: null, resetExpires: null } });
+  await destroyUserSessions(user.id);
+  await audit(req, { entity: "User", entityId: user.id, action: "TEMP_PASSWORD" });
+  res.json({ password });
 });

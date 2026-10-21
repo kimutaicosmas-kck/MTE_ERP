@@ -38,7 +38,9 @@ export function StkPrompt({
         method: "POST",
         body: JSON.stringify({ invoiceId, orderId, phone, amount: Number(amount) }),
       }),
-    onSuccess: (row) => setTxnId(row.id),
+    onSuccess: (row) => {
+      if (row?.id && !String(row.id).startsWith("offline-")) setTxnId(row.id);
+    },
   });
   const txn = useQuery({
     queryKey: ["mpesa-txn", txnId],
@@ -65,7 +67,6 @@ export function StkPrompt({
     <Modal onClose={onClose}>
       <div className="space-y-3">
         <h3 className="font-semibold">Send M-Pesa prompt</h3>
-        <p className="text-sm text-stone-500">The customer gets a Safaricom PIN prompt. When they pay, the invoice is marked paid automatically.</p>
         {!txnId && (
           <form
             className="space-y-3"

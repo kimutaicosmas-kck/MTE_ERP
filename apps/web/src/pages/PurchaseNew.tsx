@@ -1,7 +1,7 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { PageHeader } from "../components/ui";
+import { MteSelect, PageHeader, mapSelectOptions } from "../components/ui";
 import { api } from "../lib/api";
 
 export function PurchaseNew() {
@@ -41,6 +41,15 @@ export function PurchaseNew() {
     onSuccess: (p) => nav(`/procurement/${p.id}`),
   });
 
+  const vendorOptions = useMemo(
+    () => mapSelectOptions(vendors.data || [], (v) => v.id, (v) => v.name),
+    [vendors.data],
+  );
+  const partOptions = useMemo(
+    () => mapSelectOptions(parts.data || [], (p) => p.id, (p) => `${p.sku} · ${p.name}`),
+    [parts.data],
+  );
+
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     save.mutate();
@@ -52,10 +61,7 @@ export function PurchaseNew() {
       <div className="card grid gap-3 sm:grid-cols-2">
         <div>
           <label>Vendor</label>
-          <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} required>
-            <option value="">Select…</option>
-            {vendors.data?.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-          </select>
+          <MteSelect value={vendorId} onChange={setVendorId} options={vendorOptions} placeholder="Select vendor…" required aria-label="Vendor" />
         </div>
         <div>
           <label>Supplier / shipment ref</label>
@@ -71,9 +77,13 @@ export function PurchaseNew() {
         </div>
         <div>
           <label>Currency</label>
-          <select value={currency} onChange={(e) => setCurrency(e.target.value)}>
-            {["KES", "USD", "EUR", "CNY"].map((c) => <option key={c}>{c}</option>)}
-          </select>
+          <MteSelect
+            value={currency}
+            onChange={setCurrency}
+            allowEmpty={false}
+            aria-label="Currency"
+            options={["KES", "USD", "EUR", "CNY"].map((c) => ({ value: c, label: c }))}
+          />
         </div>
         <div>
           <label>FX to KES</label>
@@ -96,20 +106,20 @@ export function PurchaseNew() {
         <h2 className="font-semibold">Lines</h2>
         {lines.map((l, i) => (
           <div key={i} className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-6">
-            <select
+            <MteSelect
               className="col-span-3"
+              aria-label="Product"
               value={l.partId}
-              onChange={(e) => {
+              onChange={(partId) => {
                 const next = [...lines];
-                const part = parts.data?.find((p) => p.id === e.target.value);
-                next[i].partId = e.target.value;
+                const part = parts.data?.find((p) => p.id === partId);
+                next[i].partId = partId;
                 if (part) next[i].unitCost = part.cost || 0;
                 setLines(next);
               }}
-            >
-              <option value="">Product…</option>
-              {parts.data?.map((p) => <option key={p.id} value={p.id}>{p.sku} · {p.name}</option>)}
-            </select>
+              options={partOptions}
+              placeholder="Product…"
+            />
             <input
               type="number"
               min={1}

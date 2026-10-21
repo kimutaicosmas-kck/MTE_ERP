@@ -3,7 +3,7 @@ import { clientsClaim } from "workbox-core";
 import { ExpirationPlugin } from "workbox-expiration";
 import { cleanupOutdatedCaches, precacheAndRoute } from "workbox-precaching";
 import { NavigationRoute, registerRoute } from "workbox-routing";
-import { CacheFirst, NetworkFirst, StaleWhileRevalidate } from "workbox-strategies";
+import { NetworkFirst, NetworkOnly, StaleWhileRevalidate } from "workbox-strategies";
 import { createHandlerBoundToURL } from "workbox-precaching";
 
 declare let self: ServiceWorkerGlobalScope & { __WB_MANIFEST: any };
@@ -19,10 +19,16 @@ try {
   /* build-time only */
 }
 
+/** SSE and other streaming API routes must never be cached (cached 401 breaks EventSource). */
+registerRoute(
+  ({ url }) => url.pathname.startsWith("/api/events/"),
+  new NetworkOnly()
+);
+
 registerRoute(
   ({ url }) => url.pathname.startsWith("/api/"),
   new NetworkFirst({
-    cacheName: "mte-api",
+    cacheName: "mte-api-v2",
     networkTimeoutSeconds: 4,
     plugins: [new ExpirationPlugin({ maxEntries: 80, maxAgeSeconds: 60 * 60 * 24 })],
   })
@@ -37,10 +43,10 @@ registerRoute(
 );
 
 registerRoute(
-  ({ request, url }) => request.destination === "style" || request.destination === "script" || request.destination === "font" || url.hostname.includes("fonts."),
-  new CacheFirst({
-    cacheName: "mte-static",
-    plugins: [new ExpirationPlugin({ maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 * 30 })],
+  ({ request, url }) => (request.destination === "style" || request.destination === "script" || request.destination === "font") && url.origin === self.location.origin,
+  new StaleWhileRevalidate({
+    cacheName: "mte-static-v9",
+    plugins: [new ExpirationPlugin({ maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 * 7 })],
   })
 );
 

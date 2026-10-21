@@ -16,6 +16,20 @@ export const MODULES = [
 
 export const DEPARTMENTS = ["Sales", "Warehouse", "Finance", "Administration", "Procurement", "Operations"];
 
+export const ROLE_DEPARTMENT: Record<string, string> = {
+  SUPER_ADMIN: "Administration",
+  ADMIN: "Administration",
+  SALES: "Sales",
+  WAREHOUSE: "Warehouse",
+  FINANCE: "Finance",
+};
+
+export function departmentFor(user: { role?: string; department?: string | null } | null | undefined) {
+  if (!user) return "";
+  if (user.department) return user.department;
+  return ROLE_DEPARTMENT[user.role || ""] || "";
+}
+
 export const ROLE_MODULES: Record<string, string[]> = {
   SUPER_ADMIN: MODULES.map((m) => m.id),
   ADMIN: MODULES.map((m) => m.id),

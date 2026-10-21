@@ -1,14 +1,104 @@
 import { Router } from "express";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/audit.js";
-import { postExpense, postJournal, postPayment, postVendorPayment } from "../lib/ledger.js";
+import { recordActivity } from "../lib/activity.js";
+import { postExpense, postJournal, postPayment, postVendorPayment, reverseJournal } from "../lib/ledger.js";
 import { listInvoices, refreshInvoiceStatus } from "../lib/invoice.js";
-import { canBypassApproval } from "../lib/auth.js";
+import { queueApproval } from "../lib/approval-request.js";
+import { syncCoaCatalog } from "../lib/sync-coa.js";
 import { roles, moduleAccess } from "../middleware/auth.js";
 
 export const financeRouter = Router();
 
 financeRouter.use(moduleAccess("finance"));
+
+financeRouter.get("/dashboard", async (_req, res) => {
+  await syncCoaCatalog();
+  const accounts = await prisma.account.findMany({ include: { lines: true } });
+  const bal = (code: string) => {
+    const a = accounts.find((x) => x.code === code);
+    if (!a) return 0;
+    return a.lines.reduce((s, l) => s + l.debit - l.credit, 0);
+  };
+  const cash = bal("1000") + bal("1010") + bal("1020") + bal("1130");
+  const bank = bal("1020");
+  const ar = bal("1100");
+  const ap = -bal("2000");
+  const inventory = bal("1200");
+  const income = accounts.filter((a) => a.type === "INCOME").reduce((s, a) => s + a.lines.reduce((n, l) => n + l.credit - l.debit, 0), 0);
+  const cogs = accounts.filter((a) => a.type === "COGS").reduce((s, a) => s + a.lines.reduce((n, l) => n + l.debit - l.credit, 0), 0);
+  const expenses = accounts.filter((a) => a.type === "EXPENSE").reduce((s, a) => s + a.lines.reduce((n, l) => n + l.debit - l.credit, 0), 0);
+  const gross = income - cogs;
+  const net = gross - expenses;
+  const vatOut = accounts.find((a) => a.code === "2100")?.lines.reduce((s, l) => s + l.credit - l.debit, 0) || 0;
+  const vatIn = accounts.find((a) => a.code === "2110")?.lines.reduce((s, l) => s + l.debit - l.credit, 0) || 0;
+  const taxDue = vatOut - vatIn;
+  const assets = accounts.filter((a) => a.type === "ASSET").reduce((s, a) => s + a.lines.reduce((n, l) => n + l.debit - l.credit, 0), 0);
+  const liabilities = accounts.filter((a) => a.type === "LIABILITY").reduce((s, a) => s + a.lines.reduce((n, l) => n + l.credit - l.debit, 0), 0);
+  const equity = accounts.filter((a) => a.type === "EQUITY").reduce((s, a) => s + a.lines.reduce((n, l) => n + l.credit - l.debit, 0), 0);
+  const workingCapital = ar + inventory - ap;
+  const currentLiabilities = ap + Math.max(0, taxDue);
+  const currentRatio = currentLiabilities > 0 ? (cash + ar + inventory) / currentLiabilities : null;
+  const debtRatio = assets > 0 ? liabilities / assets : null;
+  const invoices = await listInvoices();
+  const outstanding = invoices.filter((i) => i.totals.balance > 0.01).reduce((s, i) => s + i.totals.balance, 0);
+  const bills = await prisma.vendorBill.findMany();
+  const apOpen = bills.reduce((s, b) => s + Math.max(0, b.gross - b.paid), 0);
+  res.json({
+    cashBalance: cash,
+    bankBalance: bank,
+    accountsReceivable: ar,
+    accountsPayable: apOpen || ap,
+    monthlyRevenue: income,
+    grossProfit: gross,
+    netProfit: net,
+    expenses,
+    taxDue,
+    vatCollected: vatOut,
+    inventoryValue: inventory,
+    workingCapital,
+    currentRatio,
+    debtRatio,
+    outstandingInvoices: outstanding,
+    openBills: bills.filter((b) => b.gross - b.paid > 0.01).length,
+    equity,
+    assets,
+    liabilities,
+  });
+});
+
+financeRouter.get("/ledger", async (req, res) => {
+  const code = String(req.query.account || req.query.code || "");
+  if (!code) return res.status(400).json({ error: "account code required" });
+  const account = await prisma.account.findUnique({ where: { code } });
+  if (!account) return res.status(404).json({ error: "Account not found" });
+  const lines = await prisma.journalLine.findMany({
+    where: { accountId: account.id },
+    include: { journal: { include: { user: { select: { name: true } } } } },
+    orderBy: { journal: { date: "asc" } },
+  });
+  let running = 0;
+  const rows = lines.map((l) => {
+    running += l.debit - l.credit;
+    return {
+      id: l.id,
+      date: l.journal.date,
+      memo: l.journal.memo,
+      source: l.journal.source,
+      debit: l.debit,
+      credit: l.credit,
+      balance: running,
+      user: l.journal.user?.name || "System",
+    };
+  });
+  res.json({ account, rows, balance: running });
+});
+
+financeRouter.post("/accounts/sync", roles("SUPER_ADMIN", "ADMIN"), async (req, res) => {
+  await syncCoaCatalog();
+  await audit(req, { entity: "Account", entityId: "catalog", action: "SYNC", newValue: { ok: true } });
+  res.json({ ok: true });
+});
 
 financeRouter.get("/invoices", async (_req, res) => {
   res.json(await listInvoices());
@@ -30,9 +120,24 @@ financeRouter.post("/invoices/:id/pay", async (req, res) => {
   });
   await postPayment({ orderId: invoice.orderId, number: invoice.number, method, amount, userId: req.user!.id });
   const updated = await refreshInvoiceStatus(invoice.orderId);
-  await audit(req, { entity: "Payment", entityId: pay.id, action: "CREATE", newValue: { invoice: invoice.number, amount } });
+  await recordActivity(req, {
+    entity: "Payment",
+    entityId: pay.id,
+    action: "CREATE",
+    newValue: { invoice: invoice.number, amount, method },
+    notice: {
+      title: "Payment received",
+      body: `${moneyLabel(amount)} on invoice ${invoice.number} (${method}).`,
+      url: "/finance?section=ar",
+    },
+    notifyModules: ["finance", "sales"],
+  });
   res.status(201).json({ payment: pay, invoice: updated });
 });
+
+function moneyLabel(n: number) {
+  return `KES ${Math.round(n).toLocaleString("en-KE")}`;
+}
 
 financeRouter.get("/accounts", async (_req, res) => {
   res.json(await prisma.account.findMany({ orderBy: { code: "asc" } }));
@@ -49,20 +154,13 @@ financeRouter.get("/journals", async (_req, res) => {
 });
 
 financeRouter.post("/journals", async (req, res) => {
-  if (!canBypassApproval(req.user!.role)) {
-    const approval = await prisma.approval.create({
-      data: {
-        type: "POST_JOURNAL",
-        entity: "Journal",
-        entityId: "new",
-        oldValue: "{}",
-        newValue: JSON.stringify(req.body),
-        reason: req.body.reason || req.body.memo || "Manual journal",
-        requesterId: req.user!.id,
-      },
-    });
-    return res.status(202).json({ pending: true, approval });
-  }
+  if (await queueApproval(req, res, {
+    type: "POST_JOURNAL",
+    entity: "Journal",
+    entityId: "new",
+    newValue: req.body,
+    reason: req.body.reason || req.body.memo || "Manual journal",
+  })) return;
   const j = await postJournal({
     memo: req.body.memo,
     source: "MANUAL",
@@ -144,6 +242,30 @@ financeRouter.get("/vat", async (_req, res) => {
   res.json({ output: vatOut, input: vatIn, payable: vatOut - vatIn });
 });
 
+financeRouter.get("/vat/kra-export", async (_req, res) => {
+  const { setting } = await import("../lib/sequence.js").then((m) => m.ensureCompany());
+  const output = await prisma.account.findUnique({ where: { code: "2100" }, include: { lines: true } });
+  const input = await prisma.account.findUnique({ where: { code: "2110" }, include: { lines: true } });
+  const vatOut = output?.lines.reduce((s, l) => s + l.credit - l.debit, 0) || 0;
+  const vatIn = input?.lines.reduce((s, l) => s + l.debit - l.credit, 0) || 0;
+  const payable = vatOut - vatIn;
+  const period = new Date().toISOString().slice(0, 7);
+  const lines = [
+    "Field,Value",
+    `Taxpayer PIN,${setting.kraPin || ""}`,
+    `Legal name,${setting.legalName || setting.companyName}`,
+    `Period,${period}`,
+    `Output VAT (2100),${Math.round(vatOut * 100) / 100}`,
+    `Input VAT (2110),${Math.round(vatIn * 100) / 100}`,
+    `Net VAT payable,${Math.round(payable * 100) / 100}`,
+    `Currency,${setting.currency || "KES"}`,
+    `Generated,${new Date().toISOString()}`,
+  ];
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="vat-return-${period}.csv"`);
+  res.send(lines.join("\n"));
+});
+
 financeRouter.get("/expenses", async (_req, res) => {
   res.json(await prisma.expense.findMany({ include: { user: { select: { name: true } } }, orderBy: { date: "desc" } }));
 });
@@ -162,6 +284,56 @@ financeRouter.post("/expenses", async (req, res) => {
   await postExpense(exp, req.user!.id);
   await audit(req, { entity: "Expense", entityId: exp.id, action: "CREATE", newValue: exp });
   res.status(201).json(exp);
+});
+
+financeRouter.delete("/expenses/:id", async (req, res) => {
+  const exp = await prisma.expense.findUnique({ where: { id: req.params.id } });
+  if (!exp) return res.status(404).json({ error: "Expense not found" });
+  if (await queueApproval(req, res, {
+    type: "DELETE_EXPENSE",
+    entity: "Expense",
+    entityId: exp.id,
+    oldValue: exp,
+    newValue: { deleted: true },
+    reason: String(req.body?.reason || `Remove ${exp.category} expense`),
+  })) return;
+  const journals = await prisma.journal.findMany({
+    where: { source: "EXPENSE", sourceId: exp.id, reversed: false },
+  });
+  for (const j of journals) await reverseJournal(j.id, req.user!.id);
+  await prisma.expense.delete({ where: { id: exp.id } });
+  await audit(req, { entity: "Expense", entityId: exp.id, action: "DELETE", oldValue: exp });
+  res.json({ ok: true });
+});
+
+financeRouter.post("/payments/:id/void", async (req, res) => {
+  const pay = await prisma.payment.findUnique({ where: { id: req.params.id } });
+  if (!pay) return res.status(404).json({ error: "Payment not found" });
+  if (pay.method === "CREDIT_NOTE") return res.status(400).json({ error: "Void the sales return instead of this credit note" });
+  if (await queueApproval(req, res, {
+    type: "VOID_PAYMENT",
+    entity: "Payment",
+    entityId: pay.id,
+    oldValue: pay,
+    newValue: { voided: true },
+    reason: String(req.body?.reason || "Void payment"),
+  })) return;
+  const order = await prisma.order.findUnique({ where: { id: pay.orderId }, include: { invoice: true } });
+  const cashCode = pay.method === "MPESA" ? "1010" : pay.method === "BANK" ? "1020" : "1000";
+  await postJournal({
+    memo: `Void payment ${order?.invoice?.number || order?.number || pay.id}`,
+    source: "REVERSAL",
+    sourceId: pay.id,
+    userId: req.user!.id,
+    lines: [
+      { code: "1100", debit: pay.amount },
+      { code: cashCode, credit: pay.amount },
+    ],
+  });
+  await prisma.payment.delete({ where: { id: pay.id } });
+  await refreshInvoiceStatus(pay.orderId);
+  await audit(req, { entity: "Payment", entityId: pay.id, action: "DELETE", oldValue: pay, reason: req.body?.reason });
+  res.json({ ok: true });
 });
 
 financeRouter.get("/periods", async (_req, res) => {
@@ -205,18 +377,47 @@ async function ensureBanks() {
 
 financeRouter.get("/banks", async (_req, res) => {
   await ensureBanks();
-  const banks = await prisma.bankAccount.findMany({ include: { lines: { orderBy: { date: "desc" } } } });
+  const banksRaw = await prisma.bankAccount.findMany({ include: { lines: { orderBy: { date: "desc" } } } });
+  const accounts = await prisma.account.findMany({ include: { lines: true } });
+  const glBal = (code: string) => {
+    const a = accounts.find((x) => x.code === code);
+    if (!a) return 0;
+    return a.lines.reduce((s, l) => s + l.debit - l.credit, 0);
+  };
+  const bookCash = glBal("1000") + glBal("1010") + glBal("1020") + glBal("1130");
+  const bookBank = glBal("1020");
+  const banks = banksRaw.map((b) => {
+    const stmtTotal = b.lines.reduce((s, l) => s + l.amount, 0);
+    const openLines = b.lines.filter((l) => !l.matched);
+    const openAmount = openLines.reduce((s, l) => s + l.amount, 0);
+    const bookBalance = b.code === "MPESA" ? glBal("1010") : bookBank;
+    return {
+      ...b,
+      statementTotal: Math.round(stmtTotal * 100) / 100,
+      openStatementLines: openLines.length,
+      openStatementAmount: Math.round(openAmount * 100) / 100,
+      bookBalanceGL: Math.round(bookBalance * 100) / 100,
+      variance: Math.round((stmtTotal - bookBalance) * 100) / 100,
+    };
+  });
   const payments = await prisma.payment.findMany({
     include: { order: { select: { number: true } } },
     orderBy: { createdAt: "desc" },
     take: 80,
+  });
+  const vendorPayments = await prisma.vendorPayment.findMany({
+    include: { bill: { select: { number: true, vendor: { select: { name: true } } } } },
+    orderBy: { createdAt: "desc" },
+    take: 40,
   });
   const matchedIds = new Set(
     (await prisma.bankStatementLine.findMany({ where: { paymentId: { not: null } } })).map((l) => l.paymentId)
   );
   res.json({
     banks,
+    bookCashGL: Math.round(bookCash * 100) / 100,
     unmatchedPayments: payments.filter((p) => !matchedIds.has(p.id) && (p.method === "BANK" || p.method === "MPESA")),
+    unmatchedVendorPayments: vendorPayments.filter((p) => p.method === "BANK" || p.method === "MPESA"),
   });
 });
 
