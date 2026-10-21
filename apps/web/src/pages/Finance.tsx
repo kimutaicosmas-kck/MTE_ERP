@@ -109,11 +109,11 @@ export function Finance() {
   }, []);
 
   useEffect(() => {
-    if (section === "ar") setTabRaw("invoices");
-    if (section === "ap") setTabRaw("bills");
-    if (section === "banking") setTabRaw("payments");
-    if (section === "reports" || section === "tax" || section === "close") setTabRaw("accounts");
-  }, [section, setTabRaw]);
+    if (section === "ar" && tabRaw !== "invoices" && tabRaw !== "collections") setTabRaw("invoices");
+    else if (section === "ap" && tabRaw !== "bills") setTabRaw("bills");
+    else if (section === "banking" && tabRaw !== "payments") setTabRaw("payments");
+    else if ((section === "reports" || section === "tax" || section === "close") && tabRaw !== "accounts") setTabRaw("accounts");
+  }, [section, tabRaw, setTabRaw]);
 
   const list = invoices.data || [];
   const unpaid = list.filter((inv) => inv.totals.balance > 0.01);
@@ -121,10 +121,10 @@ export function Finance() {
   const overdueAmount = overdueList.reduce((s, inv) => s + inv.totals.balance, 0);
   const overdueSeries = overdueList.slice(0, 12).map((inv) => inv.totals.balance);
   const outstanding = unpaid.reduce((s, inv) => s + inv.totals.balance, 0);
-    else if (section === "ap" && tabRaw !== "bills") setTabRaw("bills");
-    else if (section === "banking" && tabRaw !== "payments") setTabRaw("payments");
-    else if ((section === "reports" || section === "tax" || section === "close") && tabRaw !== "accounts") setTabRaw("accounts");
-  }, [section, tabRaw, setTabRaw]);
+  const dueBars = unpaid.slice(0, 8).map((inv) => inv.totals.balance);
+  const paid = list.filter((inv) => inv.totals.balance <= 0.01).length;
+  const totalBilled = list.reduce((s, inv) => s + inv.totals.gross, 0);
+  const issued = seriesByDay(list, (inv) => inv.issuedAt, (inv) => inv.totals.gross, 12);
   const income = pnl.data?.income || 0;
   const expenses = pnl.data?.expenses || 0;
   const profit = pnl.data?.net || 0;
