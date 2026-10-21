@@ -1,0 +1,41 @@
+# Co-host on AbexCore Contabo VPS — demo.abexcore.co.ke → 127.0.0.1:8081
+# Does NOT touch ~/Abexcore production (8080 / erp-*).
+#
+#   docker compose -p mte-demo \
+#     -f docker-compose.yml -f docker-compose.demo-server.yml \
+#     --env-file .env.demo-server up -d --build
+
+services:
+  mysql:
+    container_name: mte-demo-mysql
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-mte_erp}
+      MYSQL_USER: ${MYSQL_USER:-mte}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-mtepass}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
+    ports:
+      - "127.0.0.1:3309:3306"
+
+  redis:
+    container_name: mte-demo-redis
+
+  api:
+    container_name: mte-demo-api
+    ports: []
+    environment:
+      DATABASE_URL: mysql://${MYSQL_USER:-mte}:${MYSQL_PASSWORD:-mtepass}@mysql:3306/${MYSQL_DATABASE:-mte_erp}?connection_limit=25
+      JWT_SECRET: ${JWT_SECRET:-mte-demo-change-me}
+      LOAD_TEST_KEY: ""
+    expose:
+      - "4000"
+
+  worker:
+    container_name: mte-demo-worker
+    environment:
+      DATABASE_URL: mysql://${MYSQL_USER:-mte}:${MYSQL_PASSWORD:-mtepass}@mysql:3306/${MYSQL_DATABASE:-mte_erp}?connection_limit=10
+      JWT_SECRET: ${JWT_SECRET:-mte-demo-change-me}
+
+  web:
+    container_name: mte-demo-web
+    ports:
+      - "127.0.0.1:8081:80"
