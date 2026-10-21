@@ -1,9 +1,15 @@
 # Co-host on AbexCore Contabo VPS — demo.abexcore.co.ke → 127.0.0.1:8081
 # Does NOT touch ~/Abexcore production (8080 / erp-*).
 #
+#   docker network create demo_edge   # once on the VPS
 #   docker compose -p mte-demo \
 #     -f docker-compose.yml -f docker-compose.demo-server.yml \
 #     --env-file .env.demo-server up -d --build
+
+networks:
+  demo_edge:
+    external: true
+    name: demo_edge
 
 services:
   mysql:
@@ -36,5 +42,7 @@ services:
   web:
     container_name: mte-demo-web
     ports: !reset
-      # Must listen on host 0.0.0.0:8081 so production Caddy (host.docker.internal) can reach it.
-      - "8081:80"
+      - "127.0.0.1:8081:80"
+    networks:
+      - default
+      - demo_edge
