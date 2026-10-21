@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
-async function main() {
+export async function runSeed() {
   const passwordHash = await bcrypt.hash("Mte@2026", 10);
 
   const [superAdmin, admin, sales, sales2, warehouse, finance] = await Promise.all([
@@ -45,7 +45,11 @@ async function main() {
     ["2210", "Statutory payable", "LIABILITY"],
   ] as const;
   for (const [code, name, type] of accounts) {
-    await prisma.account.create({ data: { code, name, type } });
+    await prisma.account.upsert({
+      where: { code },
+      create: { code, name, type },
+      update: { name, type },
+    });
   }
 
   await prisma.journal.create({
@@ -264,14 +268,19 @@ async function main() {
 
   const { ensureCompany } = await import("../src/lib/sequence.js");
   await ensureCompany();
+  const { syncCoaCatalog } = await import("../src/lib/sync-coa.js");
+  await syncCoaCatalog();
 
   console.log("Seeded MTE ERP. Super Admin: Cosmas Kimutai. Demo password for all users: Mte@2026");
 }
 
-main()
-  .then(() => prisma.$disconnect())
-  .catch((e) => {
-    console.error(e);
-    prisma.$disconnect();
-    process.exit(1);
-  });
+const invokedDirectly = Boolean(process.argv[1]?.replace(/\\/g, "/").endsWith("prisma/seed.ts"));
+if (invokedDirectly) {
+  runSeed()
+    .then(() => prisma.$disconnect())
+    .catch((e) => {
+      console.error(e);
+      prisma.$disconnect();
+      process.exit(1);
+    });
+}

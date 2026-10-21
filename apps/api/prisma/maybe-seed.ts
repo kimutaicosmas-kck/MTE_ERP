@@ -76,9 +76,6 @@ if (n > 0) {
 }
 
 await prisma.$disconnect();
-await import("./seed.ts");
-const prismaAfter = new PrismaClient();
-const { syncCoaCatalog } = await import("../src/lib/sync-coa.js");
-await syncCoaCatalog();
-await prismaAfter.$disconnect();
+const { runSeed } = await import("./seed.ts");
+await runSeed();
 process.exit(0);
