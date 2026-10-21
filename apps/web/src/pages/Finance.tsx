@@ -11,6 +11,8 @@ import { FinanceCoA, FinanceJournalForm, FinanceLedger, FinanceOverview } from "
 import { ModuleReportsPanel } from "../components/ModuleReportsPanel";
 import { FinanceApAging, FinanceAgingMatrix, FinanceEnterpriseSection } from "./finance/FinanceEnterprise";
 import { api, downloadPdf, downloadVatKraExport, money } from "../lib/api";
+import { canModule } from "../lib/access";
+import { useAuth } from "../lib/auth";
 import { usePager } from "../lib/pager";
 
 const FINANCE_SECTIONS = [
@@ -119,10 +121,10 @@ export function Finance() {
   const overdueAmount = overdueList.reduce((s, inv) => s + inv.totals.balance, 0);
   const overdueSeries = overdueList.slice(0, 12).map((inv) => inv.totals.balance);
   const outstanding = unpaid.reduce((s, inv) => s + inv.totals.balance, 0);
-  const dueBars = unpaid.slice(0, 8).map((inv) => inv.totals.balance);
-  const paid = list.filter((inv) => inv.totals.balance <= 0.01).length;
-  const totalBilled = list.reduce((s, inv) => s + inv.totals.gross, 0);
-  const issued = seriesByDay(list, (inv) => inv.issuedAt, (inv) => inv.totals.gross, 12);
+    else if (section === "ap" && tabRaw !== "bills") setTabRaw("bills");
+    else if (section === "banking" && tabRaw !== "payments") setTabRaw("payments");
+    else if ((section === "reports" || section === "tax" || section === "close") && tabRaw !== "accounts") setTabRaw("accounts");
+  }, [section, tabRaw, setTabRaw]);
   const income = pnl.data?.income || 0;
   const expenses = pnl.data?.expenses || 0;
   const profit = pnl.data?.net || 0;

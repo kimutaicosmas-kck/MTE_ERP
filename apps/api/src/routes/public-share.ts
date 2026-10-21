@@ -3,14 +3,12 @@ import { prisma } from "../lib/prisma.js";
 import { buildOrderPdf, documentSlug } from "../lib/pdf.js";
 import { ensureCompany, formatSaleNumber } from "../lib/sequence.js";
 import { orderIdFromShareToken, unpackDocStyle } from "../lib/doc-style.js";
+import { orderMoneyTotals } from "../lib/vat-totals.js";
 
 export const publicShareRouter = Router();
 
 function totals(order: { vatRate: number; lines: { qty: number; salePrice: number }[]; payments: { amount: number }[] }) {
-  const net = order.lines.reduce((s, l) => s + l.qty * l.salePrice, 0);
-  const vat = Math.round(net * order.vatRate * 100) / 100;
-  const paid = order.payments.reduce((s, p) => s + p.amount, 0);
-  return { net, vat, gross: net + vat, paid, balance: net + vat - paid };
+  return orderMoneyTotals(order);
 }
 
 async function loadShared(token: string) {

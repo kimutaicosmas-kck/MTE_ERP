@@ -222,15 +222,14 @@ export function buildOrderPdf(data: OrderPdfInput): Promise<Buffer> {
     put(doc, prepared, LEFT + 72, y + 14, { size: 8, bold: true, width: 180 });
 
     if (priced) {
-      const net = data.totals.net;
       const vat = data.totals.vat;
       const gross = data.totals.gross;
       let ty = y;
       const totRows: [string, string][] = [
-        ["Total Amount:", moneyKes(net)],
+        ["Total Amount:", moneyKes(gross)],
         ["Less Discount:", "0.00 % | KES 0.00"],
-        ["After Discount:", moneyKes(net)],
-        ["VAT Inclusive:", moneyKes(vat)],
+        ["After Discount:", moneyKes(gross)],
+        ["VAT included:", moneyKes(vat)],
         ["Amount Payable:", moneyKes(gross)],
       ];
       if (data.kind === "sale") {

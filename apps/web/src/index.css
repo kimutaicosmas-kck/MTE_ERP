@@ -2195,19 +2195,35 @@ html.dark .action-alert-item--warn { color: #fbbf24; }
   display: grid;
   gap: 1rem;
 }
-@media (min-width: 1100px) {
-  .doc-composer-grid { grid-template-columns: minmax(0, 1fr) minmax(22rem, 28rem); align-items: start; }
+@media (min-width: 1024px) {
+  /* Form: compact column; live document preview uses the rest of the width */
+  .doc-composer-grid {
+    grid-template-columns: minmax(0, 22rem) minmax(0, 1fr);
+    align-items: start;
+    gap: 1.25rem;
+  }
+}
+@media (min-width: 1280px) {
+  .doc-composer-grid { grid-template-columns: minmax(0, 24rem) minmax(0, 1fr); }
 }
 .doc-live {
   display: none;
 }
-@media (min-width: 1100px) {
-  .doc-live { display: block; position: sticky; top: 4.75rem; }
+@media (min-width: 1024px) {
+  .doc-live { display: block; position: sticky; top: 4.75rem; min-width: 0; }
   .doc-live-inner {
     max-height: calc(100dvh - 6rem);
     overflow: auto;
     border-radius: 1rem;
     box-shadow: 0 10px 30px rgb(15 23 42 / 0.08);
+    padding: 0.35rem;
+    background: #eef2f6;
+  }
+  html.dark .doc-live-inner { background: rgb(15 23 42 / 0.45); }
+  .doc-live-inner .doc-paper {
+    width: 100%;
+    max-width: min(210mm, 100%);
+    margin-inline: auto;
   }
 }
 .doc-composer-actions {

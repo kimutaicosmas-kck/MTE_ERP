@@ -1,4 +1,5 @@
 import { addDays, DOC_PALETTE, docKes, docMoney, type DocModel } from "../lib/doc-style";
+import { computeVatTotals } from "../lib/vat-totals";
 
 const DEFAULT_TAGLINE =
   "Dealers in heavy machinery, earth-moving equipment, lubricants, filters & genuine spare parts.";
@@ -15,8 +16,7 @@ export function DocPaper({ doc }: { doc: DocModel }) {
   const discountAmt = doc.discountAmount ?? (net * discountPct) / 100;
   const afterDiscount = Math.max(0, net - discountAmt);
   const vatRate = doc.vatRate ?? 0.16;
-  const vat = Math.round(afterDiscount * vatRate * 100) / 100;
-  const payable = afterDiscount + vat;
+  const { vat, gross: payable } = computeVatTotals(afterDiscount, vatRate);
   const initials = (doc.companyName || "MTE")
     .split(/\s+/)
     .filter(Boolean)
@@ -152,8 +152,8 @@ export function DocPaper({ doc }: { doc: DocModel }) {
         </div>
         <div className="suite-doc-totals">
           <div>
-            <span>Total Amount:</span>
-            <b>{docKes(net)}</b>
+            <span>Total Amount (incl. VAT):</span>
+            <b>{docKes(payable)}</b>
           </div>
           <div>
             <span>Less Discount:</span>
@@ -163,10 +163,10 @@ export function DocPaper({ doc }: { doc: DocModel }) {
           </div>
           <div>
             <span>After Discount:</span>
-            <b>{docKes(afterDiscount)}</b>
+            <b>{docKes(payable)}</b>
           </div>
           <div className="suite-doc-vat-row">
-            <span>VAT Inclusive:</span>
+            <span>VAT included ({Math.round(vatRate * 100)}%):</span>
             <b>{docKes(vat)}</b>
           </div>
           <div className="suite-doc-payable">

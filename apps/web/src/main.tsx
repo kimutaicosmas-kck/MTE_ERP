@@ -7,8 +7,16 @@ import App from "./App";
 import "./index.css";
 import "./lib/theme";
 
+function queryShouldRetry(failureCount: number, err: unknown) {
+  const msg = err instanceof Error ? err.message.toLowerCase() : "";
+  if (/not allowed|do not have access|sign in required|forbidden|bad request|could not load|already exists/i.test(msg)) {
+    return false;
+  }
+  return failureCount < 1;
+}
+
 const client = new QueryClient({
-  defaultOptions: { queries: { refetchOnWindowFocus: false, retry: 1, networkMode: "offlineFirst" } },
+  defaultOptions: { queries: { refetchOnWindowFocus: false, retry: queryShouldRetry, networkMode: "offlineFirst" } },
 });
 
 registerSW({

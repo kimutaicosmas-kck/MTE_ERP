@@ -1,4 +1,5 @@
 import { prisma } from "./prisma.js";
+import { computeVatTotals, sumSaleLines } from "./vat-totals.js";
 
 async function accountId(code: string) {
   const a = await prisma.account.findUnique({ where: { code } });
@@ -73,8 +74,7 @@ export async function postSale(order: {
   vatRate: number;
   lines: { qty: number; salePrice: number; cost: number }[];
 }, userId?: string) {
-  const net = order.lines.reduce((s, l) => s + l.qty * l.salePrice, 0);
-  const vat = round(net * order.vatRate);
+  const { net, vat, gross } = computeVatTotals(sumSaleLines(order.lines), order.vatRate);
   const cogs = order.lines.reduce((s, l) => s + l.qty * l.cost, 0);
   return postJournal({
     memo: `Sale ${order.number}`,
@@ -82,7 +82,7 @@ export async function postSale(order: {
     sourceId: order.id,
     userId,
     lines: [
-      { code: "1100", debit: net + vat },
+      { code: "1100", debit: gross },
       { code: "4000", credit: net },
       { code: "2100", credit: vat },
       { code: "5000", debit: cogs },
@@ -211,8 +211,7 @@ export async function postSaleReturn(input: {
   lines: { qty: number; salePrice: number; cost: number }[];
   userId?: string;
 }) {
-  const net = input.lines.reduce((s, l) => s + l.qty * l.salePrice, 0);
-  const vat = round(net * input.vatRate);
+  const { net, vat, gross } = computeVatTotals(sumSaleLines(input.lines), input.vatRate);
   const cogs = input.lines.reduce((s, l) => s + l.qty * l.cost, 0);
   return postJournal({
     memo: `Sales return ${input.number}`,
@@ -222,7 +221,7 @@ export async function postSaleReturn(input: {
     lines: [
       { code: "4000", debit: net },
       { code: "2100", debit: vat },
-      { code: "1100", credit: net + vat },
+      { code: "1100", credit: gross },
       { code: "1200", debit: cogs },
       { code: "5000", credit: cogs },
     ],

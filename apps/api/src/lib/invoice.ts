@@ -1,6 +1,7 @@
 import { prisma } from "./prisma.js";
 import { computeMarkupCommission } from "./markup-commission.js";
 import { ensureCompany, nextInvoiceNumber, withUniqueNumber } from "./sequence.js";
+import { orderMoneyTotals } from "./vat-totals.js";
 
 function normalizeInvoiceNumber(raw?: string | null) {
   if (!raw) return null;
@@ -21,11 +22,7 @@ function moneyTotals(order: {
   lines: { qty: number; salePrice: number }[];
   payments: { amount: number; method: string }[];
 }) {
-  const net = order.lines.reduce((s, l) => s + l.qty * l.salePrice, 0);
-  const vat = Math.round(net * order.vatRate * 100) / 100;
-  const paid = order.payments.reduce((s, p) => s + p.amount, 0);
-  const credit = order.payments.filter((p) => p.method === "CREDIT_NOTE").reduce((s, p) => s + p.amount, 0);
-  return { net, vat, gross: net + vat, paid, credit, balance: net + vat - paid };
+  return orderMoneyTotals(order);
 }
 
 export function invoiceStatus(balance: number, paid = 0, dueAt?: Date | null) {
@@ -90,22 +87,52 @@ export async function refreshInvoiceStatus(orderId: string) {
   return prisma.invoice.update({ where: { id: invoice.id }, data: { status } });
 }
 
-export async function listInvoices() {
+function logInvoiceRepair(scope: string, id: string, err: unknown) {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.warn(`[invoice-repair] ${scope} ${id}: ${msg}`);
+}
+
+/** Backfill missing/legacy invoices — never throws (read endpoints must stay usable). */
+export async function repairInvoiceRegistry() {
   const confirmed = await prisma.order.findMany({
     where: { status: { notIn: ["DRAFT", "CANCELLED"] }, invoice: null },
     select: { id: true },
   });
   for (const o of confirmed) {
-    await issueInvoiceForOrder(o.id);
-    await refreshInvoiceStatus(o.id);
+    try {
+      await issueInvoiceForOrder(o.id);
+      await refreshInvoiceStatus(o.id);
+    } catch (err) {
+      logInvoiceRepair("order", o.id, err);
+    }
   }
   const legacy = await prisma.invoice.findMany({ where: { number: { not: { startsWith: "INV-" } } } });
   for (const inv of legacy) {
-    const number = normalizeInvoiceNumber(inv.number);
-    if (!number || number === inv.number) continue;
-    await prisma.invoice.update({ where: { id: inv.id }, data: { number } });
-    await prisma.order.update({ where: { id: inv.orderId }, data: { invoiceNumber: number } });
+    try {
+      const number = normalizeInvoiceNumber(inv.number);
+      if (!number || number === inv.number) continue;
+      const taken = await prisma.invoice.findUnique({ where: { number } });
+      if (taken && taken.id !== inv.id) continue;
+      await prisma.invoice.update({ where: { id: inv.id }, data: { number } });
+      await prisma.order.update({ where: { id: inv.orderId }, data: { invoiceNumber: number } });
+    } catch (err) {
+      logInvoiceRepair("legacy", inv.id, err);
+    }
   }
+}
+
+export async function sumOutstandingInvoiceBalances() {
+  const rows = await prisma.invoice.findMany({
+    include: { order: { include: { lines: true, payments: true } } },
+  });
+  return rows
+    .map((inv) => moneyTotals(inv.order).balance)
+    .filter((balance) => balance > 0.01)
+    .reduce((s, balance) => s + balance, 0);
+}
+
+export async function listInvoices() {
+  await repairInvoiceRegistry();
 
   const rows = await prisma.invoice.findMany({
     include: {

@@ -11,6 +11,7 @@ import { ensureCompany, ensureCustomerNumbers, nextCustomerNumber } from "../lib
 import { buildCustomerStatementPdf } from "../lib/pdf.js";
 import { cacheDel, destroyUserSessions } from "../lib/redis.js";
 import { customerOutstanding } from "../lib/credit.js";
+import { computeVatTotals, orderMoneyTotals, sumSaleLines } from "../lib/vat-totals.js";
 
 export const directoryRouter = Router();
 

@@ -1,8 +1,8 @@
 import { prisma } from "./prisma.js";
+import { computeVatTotals, sumSaleLines } from "./vat-totals.js";
 
 export function invoiceGross(inv: { vatRate: number; order: { lines: { qty: number; salePrice: number }[]; payments: { amount: number; createdAt: Date }[] } }, asOf = new Date()) {
-  const net = inv.order.lines.reduce((s, l) => s + l.qty * l.salePrice, 0);
-  const gross = Math.round((net + net * inv.vatRate) * 100) / 100;
+  const { net, gross } = computeVatTotals(sumSaleLines(inv.order.lines), inv.vatRate);
   const paid = inv.order.payments.filter((p) => p.createdAt <= asOf).reduce((s, p) => s + p.amount, 0);
   const balance = Math.round((gross - paid) * 100) / 100;
   return { net, gross, paid, balance };

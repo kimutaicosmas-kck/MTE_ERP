@@ -204,9 +204,10 @@ export function OrderDetail() {
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="card space-y-1 text-sm">
-          <div className="flex justify-between"><span>Subtotal</span><span>{money(o.totals.net)}</span></div>
-          <div className="flex justify-between"><span>VAT 16%</span><span>{money(o.totals.vat)}</span></div>
-          <div className="flex justify-between text-base font-semibold"><span>Total</span><span>{money(o.totals.gross)}</span></div>
+          <div className="flex justify-between text-base font-semibold"><span>Total (incl. VAT)</span><span>{money(o.totals.gross)}</span></div>
+          {o.totals.vat > 0 && (
+            <div className="flex justify-between text-sm text-stone-600"><span>VAT included</span><span>{money(o.totals.vat)}</span></div>
+          )}
           {(o.totals.markupTotal > 0 || o.invoice?.markupTotal > 0) && (
             <>
               <div className="flex justify-between border-t pt-2 text-stone-600">

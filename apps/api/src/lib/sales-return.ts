@@ -3,6 +3,7 @@ import { prisma } from "./prisma.js";
 import { postSaleReturn } from "./ledger.js";
 import { nextReturnNumber } from "./sequence.js";
 import { refreshInvoiceStatus } from "./invoice.js";
+import { computeVatTotals } from "./vat-totals.js";
 
 const body = z.object({
   reason: z.string().min(1),
@@ -58,7 +59,10 @@ export async function executeSalesReturn(orderId: string, userId: string, input:
     for (const s of sold) await prisma.serial.update({ where: { id: s.id }, data: { status: "RETURNED", orderId: null } });
   }
   await postSaleReturn({ id: ret.id, number: ret.number, vatRate: order.vatRate, lines: createLines, userId });
-  const credit = createLines.reduce((s, l) => s + l.qty * l.salePrice, 0) * (1 + order.vatRate);
+  const { gross: credit } = computeVatTotals(
+    createLines.reduce((s, l) => s + l.qty * l.salePrice, 0),
+    order.vatRate
+  );
   await prisma.payment.create({
     data: { orderId: order.id, method: "CREDIT_NOTE", amount: Math.round(credit * 100) / 100, reference: ret.number, userId },
   });

@@ -18,6 +18,7 @@ import { packDocStyle, shareTokenFor, unpackDocStyle } from "../lib/doc-style.js
 import { assertCreditAllowed } from "../lib/credit.js";
 import { zEntityId, zOptionalText } from "../lib/sanitize.js";
 import { canDispatchTransition, DISPATCH_METHODS, DISPATCH_PRIORITIES, isDispatchStep } from "../lib/dispatch-workflow.js";
+import { orderMoneyTotals } from "../lib/vat-totals.js";
 
 export const ordersRouter = Router();
 ordersRouter.use(moduleAccess("sales", "dispatch", "finance"));

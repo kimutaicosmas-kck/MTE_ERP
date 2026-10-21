@@ -3,7 +3,7 @@ import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/audit.js";
 import { recordActivity } from "../lib/activity.js";
 import { postExpense, postJournal, postPayment, postVendorPayment, reverseJournal } from "../lib/ledger.js";
-import { listInvoices, refreshInvoiceStatus } from "../lib/invoice.js";
+import { listInvoices, refreshInvoiceStatus, repairInvoiceRegistry, sumOutstandingInvoiceBalances } from "../lib/invoice.js";
 import { queueApproval } from "../lib/approval-request.js";
 import { syncCoaCatalog } from "../lib/sync-coa.js";
 import { roles, moduleAccess } from "../middleware/auth.js";
@@ -13,58 +13,63 @@ export const financeRouter = Router();
 financeRouter.use(moduleAccess("finance"));
 
 financeRouter.get("/dashboard", async (_req, res) => {
-  await syncCoaCatalog();
-  const accounts = await prisma.account.findMany({ include: { lines: true } });
-  const bal = (code: string) => {
-    const a = accounts.find((x) => x.code === code);
-    if (!a) return 0;
-    return a.lines.reduce((s, l) => s + l.debit - l.credit, 0);
-  };
-  const cash = bal("1000") + bal("1010") + bal("1020") + bal("1130");
-  const bank = bal("1020");
-  const ar = bal("1100");
-  const ap = -bal("2000");
-  const inventory = bal("1200");
-  const income = accounts.filter((a) => a.type === "INCOME").reduce((s, a) => s + a.lines.reduce((n, l) => n + l.credit - l.debit, 0), 0);
-  const cogs = accounts.filter((a) => a.type === "COGS").reduce((s, a) => s + a.lines.reduce((n, l) => n + l.debit - l.credit, 0), 0);
-  const expenses = accounts.filter((a) => a.type === "EXPENSE").reduce((s, a) => s + a.lines.reduce((n, l) => n + l.debit - l.credit, 0), 0);
-  const gross = income - cogs;
-  const net = gross - expenses;
-  const vatOut = accounts.find((a) => a.code === "2100")?.lines.reduce((s, l) => s + l.credit - l.debit, 0) || 0;
-  const vatIn = accounts.find((a) => a.code === "2110")?.lines.reduce((s, l) => s + l.debit - l.credit, 0) || 0;
-  const taxDue = vatOut - vatIn;
-  const assets = accounts.filter((a) => a.type === "ASSET").reduce((s, a) => s + a.lines.reduce((n, l) => n + l.debit - l.credit, 0), 0);
-  const liabilities = accounts.filter((a) => a.type === "LIABILITY").reduce((s, a) => s + a.lines.reduce((n, l) => n + l.credit - l.debit, 0), 0);
-  const equity = accounts.filter((a) => a.type === "EQUITY").reduce((s, a) => s + a.lines.reduce((n, l) => n + l.credit - l.debit, 0), 0);
-  const workingCapital = ar + inventory - ap;
-  const currentLiabilities = ap + Math.max(0, taxDue);
-  const currentRatio = currentLiabilities > 0 ? (cash + ar + inventory) / currentLiabilities : null;
-  const debtRatio = assets > 0 ? liabilities / assets : null;
-  const invoices = await listInvoices();
-  const outstanding = invoices.filter((i) => i.totals.balance > 0.01).reduce((s, i) => s + i.totals.balance, 0);
-  const bills = await prisma.vendorBill.findMany();
-  const apOpen = bills.reduce((s, b) => s + Math.max(0, b.gross - b.paid), 0);
-  res.json({
-    cashBalance: cash,
-    bankBalance: bank,
-    accountsReceivable: ar,
-    accountsPayable: apOpen || ap,
-    monthlyRevenue: income,
-    grossProfit: gross,
-    netProfit: net,
-    expenses,
-    taxDue,
-    vatCollected: vatOut,
-    inventoryValue: inventory,
-    workingCapital,
-    currentRatio,
-    debtRatio,
-    outstandingInvoices: outstanding,
-    openBills: bills.filter((b) => b.gross - b.paid > 0.01).length,
-    equity,
-    assets,
-    liabilities,
-  });
+  try {
+    await syncCoaCatalog();
+    await repairInvoiceRegistry();
+    const accounts = await prisma.account.findMany({ include: { lines: true } });
+    const bal = (code: string) => {
+      const a = accounts.find((x) => x.code === code);
+      if (!a) return 0;
+      return a.lines.reduce((s, l) => s + l.debit - l.credit, 0);
+    };
+    const cash = bal("1000") + bal("1010") + bal("1020") + bal("1130");
+    const bank = bal("1020");
+    const ar = bal("1100");
+    const ap = -bal("2000");
+    const inventory = bal("1200");
+    const income = accounts.filter((a) => a.type === "INCOME").reduce((s, a) => s + a.lines.reduce((n, l) => n + l.credit - l.debit, 0), 0);
+    const cogs = accounts.filter((a) => a.type === "COGS").reduce((s, a) => s + a.lines.reduce((n, l) => n + l.debit - l.credit, 0), 0);
+    const expenses = accounts.filter((a) => a.type === "EXPENSE").reduce((s, a) => s + a.lines.reduce((n, l) => n + l.debit - l.credit, 0), 0);
+    const gross = income - cogs;
+    const net = gross - expenses;
+    const vatOut = accounts.find((a) => a.code === "2100")?.lines.reduce((s, l) => s + l.credit - l.debit, 0) || 0;
+    const vatIn = accounts.find((a) => a.code === "2110")?.lines.reduce((s, l) => s + l.debit - l.credit, 0) || 0;
+    const taxDue = vatOut - vatIn;
+    const assets = accounts.filter((a) => a.type === "ASSET").reduce((s, a) => s + a.lines.reduce((n, l) => n + l.debit - l.credit, 0), 0);
+    const liabilities = accounts.filter((a) => a.type === "LIABILITY").reduce((s, a) => s + a.lines.reduce((n, l) => n + l.credit - l.debit, 0), 0);
+    const equity = accounts.filter((a) => a.type === "EQUITY").reduce((s, a) => s + a.lines.reduce((n, l) => n + l.credit - l.debit, 0), 0);
+    const workingCapital = ar + inventory - ap;
+    const currentLiabilities = ap + Math.max(0, taxDue);
+    const currentRatio = currentLiabilities > 0 ? (cash + ar + inventory) / currentLiabilities : null;
+    const debtRatio = assets > 0 ? liabilities / assets : null;
+    const outstanding = await sumOutstandingInvoiceBalances();
+    const bills = await prisma.vendorBill.findMany();
+    const apOpen = bills.reduce((s, b) => s + Math.max(0, b.gross - b.paid), 0);
+    res.json({
+      cashBalance: cash,
+      bankBalance: bank,
+      accountsReceivable: ar,
+      accountsPayable: apOpen || ap,
+      monthlyRevenue: income,
+      grossProfit: gross,
+      netProfit: net,
+      expenses,
+      taxDue,
+      vatCollected: vatOut,
+      inventoryValue: inventory,
+      workingCapital,
+      currentRatio,
+      debtRatio,
+      outstandingInvoices: outstanding,
+      openBills: bills.filter((b) => b.gross - b.paid > 0.01).length,
+      equity,
+      assets,
+      liabilities,
+    });
+  } catch (err) {
+    console.error("GET /api/finance/dashboard", err);
+    res.status(500).json({ error: "Finance dashboard could not load. Check server logs for invoice or ledger data issues." });
+  }
 });
 
 financeRouter.get("/ledger", async (req, res) => {
@@ -101,7 +106,12 @@ financeRouter.post("/accounts/sync", roles("SUPER_ADMIN", "ADMIN"), async (req, 
 });
 
 financeRouter.get("/invoices", async (_req, res) => {
-  res.json(await listInvoices());
+  try {
+    res.json(await listInvoices());
+  } catch (err) {
+    console.error("GET /api/finance/invoices", err);
+    res.status(500).json({ error: "Could not load invoices." });
+  }
 });
 
 financeRouter.post("/invoices/:id/pay", async (req, res) => {

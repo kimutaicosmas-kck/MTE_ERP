@@ -1,4 +1,5 @@
 import { prisma } from "./prisma.js";
+import { computeVatTotals, sumSaleLines } from "./vat-totals.js";
 
 export type DashboardAlert = {
   id: string;
@@ -24,8 +25,7 @@ export async function fetchDashboardAlerts(): Promise<DashboardAlert[]> {
   const dispatch = orders.filter((o) => ["PICKED", "PACKING", "PICKING", "CONFIRMED", "DISPATCHED", "IN_TRANSIT"].includes(o.status)).length;
 
   const overdueInvoices = invoices.filter((inv) => {
-    const total = inv.order.lines.reduce((s, l) => s + l.qty * l.salePrice, 0);
-    const gross = total * (1 + inv.vatRate);
+    const { gross } = computeVatTotals(sumSaleLines(inv.order.lines), inv.vatRate);
     const paid = inv.order.payments.reduce((s, p) => s + p.amount, 0);
     const balance = gross - paid;
     if (balance <= 0.01) return false;
@@ -33,8 +33,7 @@ export async function fetchDashboardAlerts(): Promise<DashboardAlert[]> {
     return due.getTime() < Date.now();
   });
   const overdueAmount = overdueInvoices.reduce((s, inv) => {
-    const total = inv.order.lines.reduce((n, l) => n + l.qty * l.salePrice, 0);
-    const gross = total * (1 + inv.vatRate);
+    const { gross } = computeVatTotals(sumSaleLines(inv.order.lines), inv.vatRate);
     const paid = inv.order.payments.reduce((n, p) => n + p.amount, 0);
     return s + Math.max(0, gross - paid);
   }, 0);

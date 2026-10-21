@@ -59,16 +59,28 @@ export async function searchCustomers(terms: string[], take = 8) {
     .map(({ _score, ...r }) => r);
 }
 
+/** Generic ERP words — must not match sales staff emails like sales@mte.local. */
+const SALESPERSON_HINT_STOP = new Set([
+  "sales", "order", "orders", "create", "new", "quote", "quotation", "invoice", "customer", "field", "shop",
+  "how", "help", "make", "start", "open", "confirm", "convert", "dispatch", "payment", "stock", "part",
+]);
+
 /** Sales staff name match (e.g. "amina" → Amina Yusuf), not a customer account. */
 export async function matchSalespersonHint(terms: string[]) {
-  if (!terms.length) return null;
+  const filtered = terms.map((t) => t.toLowerCase()).filter((t) => t.length >= 3 && !SALESPERSON_HINT_STOP.has(t));
+  if (!filtered.length) return null;
   const users = await prisma.user.findMany({
     where: { role: "SALES", active: true },
     select: { id: true, name: true, email: true },
   });
-  for (const t of terms) {
-    const tl = t.toLowerCase();
-    const hit = users.find((u) => u.name.toLowerCase().includes(tl) || u.email.toLowerCase().startsWith(tl));
+  for (const tl of filtered) {
+    const hit = users.find((u) => {
+      const name = u.name.toLowerCase();
+      const local = u.email.toLowerCase().split("@")[0] || "";
+      if (name.split(/\s+/).some((part) => part.startsWith(tl) || part === tl)) return true;
+      if (local === tl || (tl.length >= 4 && local.startsWith(`${tl}.`))) return true;
+      return false;
+    });
     if (hit) return hit;
   }
   return null;

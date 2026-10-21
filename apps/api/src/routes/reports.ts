@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../lib/prisma.js";
 import { moduleAccess } from "../middleware/auth.js";
+import { computeVatTotals, sumSaleLines } from "../lib/vat-totals.js";
 
 export const reportsRouter = Router();
 

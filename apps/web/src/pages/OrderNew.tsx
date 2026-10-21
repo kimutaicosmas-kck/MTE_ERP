@@ -78,7 +78,7 @@ export function OrderNew() {
   };
   const estGross = useMemo(() => {
     const net = lines.reduce((s, l) => s + lineUnitPrice(l) * l.qty, 0);
-    return Math.round(net * 1.16 * 100) / 100;
+    return Math.round(net * 100) / 100;
   }, [lines, parts.data]);
   const doc = useMemo<DocModel>(() => ({
     kind: saveAsQuote ? "quotation" : "sales-order",

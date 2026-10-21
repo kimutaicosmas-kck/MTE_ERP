@@ -94,7 +94,89 @@ const STOP = new Set([
 
   "help", "any", "all", "our", "my", "me", "i", "a", "an", "to", "in", "on", "at", "is", "it", "of",
 
+  "sales", "order", "orders", "create", "new", "quote", "quotation", "invoice", "salesperson", "make", "start",
+
+  "open", "confirm", "convert", "workflow", "steps", "guide", "walk", "through", "do", "field", "shop",
+
 ]);
+
+
+
+function isWorkflowQuestion(message: string) {
+
+  const q = message.toLowerCase().trim();
+
+  if (/\b(how\s+(to|do|can|should)|step(?:s)?|workflow|guide|walk\s+me\s+through|help\s+me)\b/.test(q)) return true;
+
+  if (
+
+    /\b(create|make|start|issue|record|convert|confirm|add|enter)\b/.test(q) &&
+
+    /\b(order|quote|quotation|invoice|payment|po|purchase|dispatch|grn|receipt|customer|return)\b/.test(q)
+
+  ) {
+
+    return true;
+
+  }
+
+  return false;
+
+}
+
+
+
+function isPersonLookup(message: string) {
+
+  const q = message.toLowerCase();
+
+  return (
+
+    /\b(who\s+is|find\s+(?:staff|user|salesperson)|salesperson|sales\s+rep|sales\s+user)\b/.test(q) ||
+
+    (/\b(customer|client|account)\b/.test(q) && (q.includes("find") || q.includes("search") || q.includes("who") || q.includes("which")))
+
+  );
+
+}
+
+
+
+function salesOrderWorkflowReply(): string {
+
+  return [
+
+    "**Create a sales order**",
+
+    "1. Open [New sales order](/sales/new).",
+
+    "2. Select **customer**, how they ordered (shop / phone / field), and delivery method.",
+
+    "3. Add products and quantities. Use **unit price** if you charge above catalog (markup commission is stored on the invoice).",
+
+    "4. Save as **quotation** to send first, or save as a confirmed order when stock is available.",
+
+    "5. After confirm: invoice in [Finance](/finance); picking in [Dispatch](/dispatch).",
+
+  ].join("\n");
+
+}
+
+
+
+function shouldUseGuidedReply(message: string): boolean {
+
+  if (isWorkflowQuestion(message)) return true;
+
+  const q = message.toLowerCase().trim();
+
+  if (/^(hi|hello|hey)\b/.test(q)) return true;
+
+  if (/\b(where|which\s+screen|go\s+to)\b/.test(q)) return true;
+
+  return false;
+
+}
 
 
 
@@ -162,13 +244,17 @@ function searchTerms(message: string) {
 
 export async function searchLiveContext(user: { id: string; role: string }, message: string): Promise<LiveSearch> {
 
+  const empty: LiveSearch = { customers: [], parts: [], orders: [] };
+
+  if (isWorkflowQuestion(message) && !wantsCustomerList(message) && !isPersonLookup(message)) return empty;
+
+
+
   const listMode = wantsCustomerList(message);
 
   const custTerms = customerSearchTerms(message);
 
   const terms = searchTerms(message);
-
-  const empty: LiveSearch = { customers: [], parts: [], orders: [] };
 
   if (!listMode && !terms.length && !custTerms.length) return empty;
 
@@ -326,36 +412,56 @@ function ruleBasedReply(message: string, snap: ErpSnapshot, live: LiveSearch): s
 
 
 
-  const fromSearch = formatLiveSearch(live);
-
-  if (
-    fromSearch &&
-    (live.listMode ||
-      q.includes("find") ||
-      q.includes("search") ||
-      q.includes("who") ||
-      q.includes("which") ||
-      q.includes("customer") ||
-      live.customers.length ||
-      live.salespersonHint ||
-      live.orders.length === 1)
-  ) {
-
-    return fromSearch;
-
-  }
-
-
-
   if (/^(hi|hello|hey)\b/.test(q)) {
 
     return `Hello ${snap.user.name.split(" ")[0]}. Ask me anything about MTE ERP — workflows, your numbers, or where to go in the app.`;
 
   }
 
-  if (q.includes("new order") || q.includes("create order") || (q.includes("field") && q.includes("order"))) {
+  if (
+    q.includes("sales order") ||
+    q.includes("create order") ||
+    q.includes("new order") ||
+    (q.includes("order") && (q.includes("create") || q.includes("make") || q.includes("how"))) ||
+    (q.includes("field") && q.includes("order"))
+  ) {
 
-    return "Capture a sale here: [New sales order](/sales/new). After saving, use **Share** on the order for PDF or customer link.";
+    return salesOrderWorkflowReply();
+
+  }
+
+  if ((q.includes("quotation") || q.includes("quote")) && (q.includes("create") || q.includes("how") || q.includes("new"))) {
+
+    return [
+
+      "**Create a quotation**",
+
+      "1. [New sales order](/sales/new) → tick **Save as quote first**.",
+
+      "2. Add customer and lines, then save.",
+
+      "3. Share PDF from the order. When the customer accepts, open the quote and **Confirm sales order**.",
+
+    ].join("\n");
+
+  }
+
+
+
+  const fromSearch = formatLiveSearch(live);
+
+  if (
+    fromSearch &&
+    (live.listMode ||
+      isPersonLookup(q) ||
+      q.includes("find") ||
+      q.includes("search") ||
+      ((q.includes("who") || q.includes("which")) && q.includes("customer")) ||
+      (live.customers.length && (q.includes("customer") || q.includes("repayment") || q.includes("balance"))) ||
+      live.orders.length === 1)
+  ) {
+
+    return fromSearch;
 
   }
 
@@ -501,6 +607,8 @@ async function openAiReply(
 
     `Search results (may be empty): ${JSON.stringify(live)}`,
 
+    "If the user asks how to do something, explain the workflow. Ignore salespersonHint unless they asked about a person by name.",
+
   ].join("\n\n");
 
 
@@ -611,7 +719,19 @@ export async function assistantChat(user: { id: string; name: string; role: stri
 
 
 
-  if (apiKey) {
+  const guided = ruleBasedReply(trimmed, snap, live);
+
+  if (guided && shouldUseGuidedReply(trimmed)) {
+
+    reply = guided;
+
+    mode = "local";
+
+  }
+
+
+
+  if (!reply && apiKey) {
 
     try {
 

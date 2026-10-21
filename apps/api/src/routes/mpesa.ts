@@ -173,7 +173,10 @@ mpesaRouter.post("/stk", limit("stk"), async (req, res) => {
     if (!invoice) return res.status(404).json({ error: "Invoice not found. Confirm the sale first." });
     const phone = String(req.body.phone || invoice.customer.phone || "");
     const paid = invoice.order.payments.reduce((s, p) => s + p.amount, 0);
-    const gross = invoice.order.lines.reduce((s, l) => s + l.qty * l.salePrice, 0) * (1 + invoice.vatRate);
+    const { gross } = computeVatTotals(
+      invoice.order.lines.reduce((s, l) => s + l.qty * l.salePrice, 0),
+      invoice.vatRate
+    );
     const balance = Math.max(0, Math.round((gross - paid) * 100) / 100);
     const amount = Number(req.body.amount || balance);
     if (amount <= 0) return res.status(400).json({ error: "This invoice is already paid" });
