@@ -13,7 +13,7 @@ services:
       MYSQL_USER: ${MYSQL_USER:-mte}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-mtepass}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
-    ports:
+    ports: !reset
       - "127.0.0.1:3309:3306"
 
   redis:
@@ -21,7 +21,7 @@ services:
 
   api:
     container_name: mte-demo-api
-    ports: []
+    ports: !reset []
     environment:
       JWT_SECRET: ${JWT_SECRET:-mte-demo-change-me}
       LOAD_TEST_KEY: ""
@@ -35,5 +35,6 @@ services:
 
   web:
     container_name: mte-demo-web
-    ports:
-      - "127.0.0.1:8081:80"
+    ports: !reset
+      # Must listen on host 0.0.0.0:8081 so production Caddy (host.docker.internal) can reach it.
+      - "8081:80"
