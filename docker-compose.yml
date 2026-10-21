@@ -34,7 +34,7 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
     environment:
-      DATABASE_URL: mysql://mte:mtepass@mysql:3306/mte_erp?connection_limit=25
+      DATABASE_URL: mysql://${MYSQL_USER:-mte}:${MYSQL_PASSWORD:-mtepass}@mysql:3306/${MYSQL_DATABASE:-mte_erp}?connection_limit=25
       JWT_SECRET: mte-erp-change-in-production
       REDIS_URL: redis://redis:6379
       PORT: "4000"
@@ -68,7 +68,7 @@ services:
       dockerfile: apps/api/Dockerfile
     command: ["npx", "tsx", "src/worker.ts"]
     environment:
-      DATABASE_URL: mysql://mte:mtepass@mysql:3306/mte_erp?connection_limit=10
+      DATABASE_URL: mysql://${MYSQL_USER:-mte}:${MYSQL_PASSWORD:-mtepass}@mysql:3306/${MYSQL_DATABASE:-mte_erp}?connection_limit=10
       JWT_SECRET: mte-erp-change-in-production
       REDIS_URL: redis://redis:6379
       SKIP_DB_SETUP: "1"

@@ -23,8 +23,6 @@ services:
     container_name: mte-demo-api
     ports: []
     environment:
-      # Set DATABASE_URL in .env.demo-server (URL-encode / + @ in password). Do not embed raw password here.
-      DATABASE_URL: ${DATABASE_URL}
       JWT_SECRET: ${JWT_SECRET:-mte-demo-change-me}
       LOAD_TEST_KEY: ""
     expose:
@@ -33,7 +31,6 @@ services:
   worker:
     container_name: mte-demo-worker
     environment:
-      DATABASE_URL: ${DATABASE_URL}
       JWT_SECRET: ${JWT_SECRET:-mte-demo-change-me}
 
   web:
