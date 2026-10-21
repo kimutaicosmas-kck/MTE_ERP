@@ -3,11 +3,6 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 const n = await prisma.user.count();
 
-const { ensureCompany } = await import("../src/lib/sequence.js");
-await ensureCompany();
-const { syncCoaCatalog } = await import("../src/lib/sync-coa.js");
-await syncCoaCatalog();
-
 const DEPT: Record<string, string> = {
   SUPER_ADMIN: "Administration",
   ADMIN: "Administration",
@@ -33,6 +28,11 @@ if ((await prisma.notice.count()) === 0) {
 }
 
 if (n > 0) {
+  const { ensureCompany } = await import("../src/lib/sequence.js");
+  await ensureCompany();
+  const { syncCoaCatalog } = await import("../src/lib/sync-coa.js");
+  await syncCoaCatalog();
+
   const pos = await prisma.purchaseOrder.count();
   if (pos === 0) {
     const vendor = await prisma.vendor.findFirst();
@@ -77,3 +77,8 @@ if (n > 0) {
 
 await prisma.$disconnect();
 await import("./seed.ts");
+const prismaAfter = new PrismaClient();
+const { syncCoaCatalog } = await import("../src/lib/sync-coa.js");
+await syncCoaCatalog();
+await prismaAfter.$disconnect();
+process.exit(0);

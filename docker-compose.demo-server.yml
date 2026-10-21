@@ -23,7 +23,8 @@ services:
     container_name: mte-demo-api
     ports: []
     environment:
-      DATABASE_URL: mysql://${MYSQL_USER:-mte}:${MYSQL_PASSWORD:-mtepass}@mysql:3306/${MYSQL_DATABASE:-mte_erp}?connection_limit=25
+      # Set DATABASE_URL in .env.demo-server (URL-encode / + @ in password). Do not embed raw password here.
+      DATABASE_URL: ${DATABASE_URL}
       JWT_SECRET: ${JWT_SECRET:-mte-demo-change-me}
       LOAD_TEST_KEY: ""
     expose:
@@ -32,7 +33,7 @@ services:
   worker:
     container_name: mte-demo-worker
     environment:
-      DATABASE_URL: mysql://${MYSQL_USER:-mte}:${MYSQL_PASSWORD:-mtepass}@mysql:3306/${MYSQL_DATABASE:-mte_erp}?connection_limit=10
+      DATABASE_URL: ${DATABASE_URL}
       JWT_SECRET: ${JWT_SECRET:-mte-demo-change-me}
 
   web:
