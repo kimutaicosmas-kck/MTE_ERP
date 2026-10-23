@@ -5,7 +5,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { MachinePartSearch } from "../components/MachinePartSearch";
 import { CaptureField } from "../components/CaptureField";
 import { ImportButton } from "../components/ImportButton";
-import { FilterChips, Register, useListSort } from "../components/register";
+import { Register, useListSort } from "../components/register";
 import { MobileFilters } from "../components/filters";
 import { EmptyRow, ExportButtons, Modal, PageHeader, Pager, Stat, StatGrid, useCreateOpen, useQueryState } from "../components/ui";
 import { ModuleReportsPanel } from "../components/ModuleReportsPanel";
@@ -153,7 +153,7 @@ export function Inventory() {
   }, [dash.data]);
 
   const lowOutCount = dash.data ? dash.data.low + dash.data.out : stats.low;
-  const filtersActive = Boolean(q || category);
+  const filtersActive = Boolean(q || category || tab !== "all");
 
   return (
     <div className="space-y-4 suite-dash">
@@ -228,16 +228,6 @@ export function Inventory() {
 
       {showCatalog && (
       <>
-      <FilterChips
-        value={tab}
-        onChange={setTab}
-        items={[
-          { id: "all", label: "All products", count: stats.products },
-          { id: "low", label: "Low stock", count: stats.low },
-          { id: "out", label: "Out of stock", count: stats.out },
-          { id: "dead", label: "Dead stock", count: stats.dead },
-        ]}
-      />
       <MachinePartSearch onPick={(p) => user?.role !== "SALES" && setEdit(p as Product)} />
       <section className="suite-panel suite-panel-table module-list-suite overflow-hidden">
         <div className="module-list-toolbar">
@@ -252,8 +242,20 @@ export function Inventory() {
           </label>
           <MobileFilters
             title="Filter products"
-            onClear={() => { setQ(""); setCategory(""); }}
+            onClear={() => { setQ(""); setCategory(""); setTab("all"); }}
             fields={[
+              {
+                kind: "select",
+                label: "Stock level",
+                value: tab,
+                onChange: (v) => setTab(v as InvTab),
+                options: [
+                  { value: "all", label: "All products" },
+                  { value: "low", label: "Low stock" },
+                  { value: "out", label: "Out of stock" },
+                  { value: "dead", label: "Dead stock" },
+                ],
+              },
               {
                 kind: "select",
                 label: "Category",
@@ -267,6 +269,12 @@ export function Inventory() {
             <div className={`module-filter-group ${filtersActive ? "module-filter-group-active" : ""}`}>
               <span className="module-filter-group-label">Filters</span>
               <div className="module-filter-controls">
+                <select className="module-select" value={tab} onChange={(e) => setTab(e.target.value as InvTab)} aria-label="Stock level">
+                  <option value="all">All products</option>
+                  <option value="low">Low stock</option>
+                  <option value="out">Out of stock</option>
+                  <option value="dead">Dead stock</option>
+                </select>
                 <select className="module-select" value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category">
                   <option value="">All categories</option>
                   {categories.map((c) => <option key={c}>{c}</option>)}
@@ -275,7 +283,7 @@ export function Inventory() {
                   type="button"
                   className="module-filter-reset"
                   disabled={!filtersActive}
-                  onClick={() => { setQ(""); setCategory(""); }}
+                  onClick={() => { setQ(""); setCategory(""); setTab("all"); }}
                 >
                   Reset
                 </button>

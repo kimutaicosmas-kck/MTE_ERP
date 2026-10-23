@@ -3,7 +3,7 @@ import { BarChart3, CalendarClock, Download, Gauge, LayoutGrid, Search, Share2 }
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { MobileFilters } from "../components/filters";
-import { FilterChips, Register } from "../components/register";
+import { Register } from "../components/register";
 import { EmptyRow, ExportButtons, PageHeader, Pager, RowPdf, Stat, StatGrid, useQueryState } from "../components/ui";
 import { api, money } from "../lib/api";
 import { usePager } from "../lib/pager";
@@ -138,17 +138,6 @@ export function Reports() {
 
       {hub === "cross" && (
       <>
-      {tab === "stock" && (
-        <FilterChips
-          value={stockView}
-          onChange={setStockView}
-          items={STOCK_VIEWS.map((id) => ({
-            id,
-            label: STOCK_LABELS[id],
-            count: BUCKET_KEY[id] ? inv.data?.ageingBuckets?.[BUCKET_KEY[id]!]?.length : inv.data?.[id]?.length,
-          }))}
-        />
-      )}
       <section className="suite-panel suite-panel-table module-list-suite overflow-hidden">
         <div className="module-list-toolbar">
           <label className="module-search-field">
@@ -160,12 +149,14 @@ export function Reports() {
             onClear={() => setQ("")}
             fields={[
               {
-                kind: "chips",
+                kind: "select",
                 label: "Report",
                 value: tab === "stock" ? stockView : tab,
                 onChange: (v) => {
-                  if (STOCK_VIEWS.includes(v as StockView)) setStockView(v as StockView);
-                  else setTab(v as MainTab);
+                  if (STOCK_VIEWS.includes(v as StockView)) {
+                    setTab("stock");
+                    setStockView(v as StockView);
+                  } else setTab(v as MainTab);
                 },
                 options: [
                   ...STOCK_VIEWS.map((id) => ({ value: id, label: STOCK_LABELS[id] })),
@@ -181,6 +172,30 @@ export function Reports() {
             <div className={`module-filter-group ${filtersActive ? "module-filter-group-active" : ""}`}>
               <span className="module-filter-group-label">Filters</span>
               <div className="module-filter-controls">
+                {tab === "stock" && (
+                  <select
+                    className="module-select"
+                    value={stockView}
+                    onChange={(e) => setStockView(e.target.value as StockView)}
+                    aria-label="Stock view"
+                  >
+                    {STOCK_VIEWS.map((id) => (
+                      <option key={id} value={id}>{STOCK_LABELS[id]}</option>
+                    ))}
+                  </select>
+                )}
+                <select
+                  className="module-select"
+                  value={tab}
+                  onChange={(e) => setTab(e.target.value as MainTab)}
+                  aria-label="Report"
+                >
+                  <option value="stock">Inventory stock</option>
+                  <option value="buy">What to buy</option>
+                  <option value="customers">Customers</option>
+                  <option value="team">Sales team</option>
+                  <option value="vendors">Vendors</option>
+                </select>
                 <button type="button" className="module-filter-reset" disabled={!filtersActive} onClick={() => setQ("")}>
                   Reset
                 </button>

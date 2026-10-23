@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Banknote, FileDown, Landmark, Package, Plus, Receipt, Scale, TrendingUp, Wallet } from "lucide-react";
+import { Banknote, FileDown, Landmark, Package, Plus, Receipt, Scale, Search, TrendingUp, Wallet } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { StkPrompt } from "../components/StkPrompt";
 import { MobileFilters } from "../components/filters";
-import { FilterChips, Register, useListSort } from "../components/register";
+import { Register, useListSort } from "../components/register";
 import { EmptyRow, ExportButtons, Modal, MteSelect, PageHeader, Pager, RowPdf, Stat, StatGrid, mapSelectOptions, useQueryState } from "../components/ui";
 import { FinanceCoA, FinanceJournalForm, FinanceLedger } from "./finance/FinancePanels";
 import { ModuleReportsPanel } from "../components/ModuleReportsPanel";
@@ -337,8 +337,8 @@ function InvoiceRegister({ invoices }: { invoices: Invoice[] }) {
     { id: "customer", label: "Customer A–Z", get: (inv) => inv.customer.name, dir: "asc" },
   ], "date");
   const pager = usePager(listing.sorted, `${q}|${type}|${status}|${vat}|${when}|${listing.sort}`);
-  const unpaidN = invoices.filter((inv) => inv.totals.balance > 0.01).length;
-  const paidN = invoices.length - unpaidN;
+  const clearFilters = () => { setQ(""); setType(""); setStatus(""); setVat(""); setWhen("all"); };
+  const filtersActive = Boolean(q || type || status || vat || when !== "all");
 
   const headers = ["Document #", "Type", "Customer / supplier", "VAT", "LPO", "Sales person", "Date", "Due", "Total", "Commission", "Balance", "Credit note", "Status"];
   const exportRows = () =>
@@ -359,87 +359,96 @@ function InvoiceRegister({ invoices }: { invoices: Invoice[] }) {
     ]);
 
   return (
-    <div className="space-y-3">
-      <div className="toolbar">
-        <input className="min-w-[220px] flex-1 rounded-full" placeholder="Search invoice # or party…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <select className="w-auto rounded-full" value={type} onChange={(e) => setType(e.target.value)}>
-          <option value="">All types</option>
-          <option value="SALE">Sale</option>
-        </select>
-        <select className="w-auto rounded-full" value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">All statuses</option>
-          <option value="unpaid">Unpaid</option>
-          <option value="paid">Paid</option>
-          <option value="overdue">Overdue</option>
-        </select>
-        <select className="w-auto rounded-full" value={vat} onChange={(e) => setVat(e.target.value)}>
-          <option value="">All VAT types</option>
-          <option value="VAT">VAT</option>
-          <option value="NON">Non-VAT</option>
-        </select>
-        <select className="w-auto rounded-full" value={when} onChange={(e) => setWhen(e.target.value)}>
-          <option value="all">All dates</option>
-          <option value="today">Today</option>
-          <option value="week">This week</option>
-          <option value="month">This month</option>
-        </select>
-        <button className="btn-ghost rounded-full" onClick={() => { setQ(""); setType(""); setStatus(""); setVat(""); setWhen("all"); }}>Clear</button>
-        <ExportButtons title="Invoices" filename="invoices.csv" headers={headers} rows={exportRows()} />
+    <section className="suite-panel suite-panel-table module-list-suite overflow-hidden">
+      <div className="module-list-toolbar">
+        <label className="module-search-field">
+          <Search size={17} className="module-search-icon" aria-hidden />
+          <input
+            className="min-w-0 flex-1"
+            placeholder="Search invoice # or party…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </label>
+        <MobileFilters
+          title="Filter invoices"
+          onClear={clearFilters}
+          fields={[
+            {
+              kind: "select",
+              label: "Status",
+              value: status,
+              onChange: setStatus,
+              options: [
+                { value: "", label: "All statuses" },
+                { value: "unpaid", label: "Unpaid" },
+                { value: "paid", label: "Paid" },
+                { value: "overdue", label: "Overdue" },
+              ],
+            },
+            {
+              kind: "select",
+              label: "Type",
+              value: type,
+              onChange: setType,
+              options: [{ value: "", label: "All types" }, { value: "SALE", label: "Sale" }],
+            },
+            {
+              kind: "select",
+              label: "VAT",
+              value: vat,
+              onChange: setVat,
+              options: [{ value: "", label: "All VAT types" }, { value: "VAT", label: "VAT" }, { value: "NON", label: "Non-VAT" }],
+            },
+            {
+              kind: "select",
+              label: "Period",
+              value: when,
+              onChange: setWhen,
+              options: [
+                { value: "all", label: "All dates" },
+                { value: "today", label: "Today" },
+                { value: "week", label: "This week" },
+                { value: "month", label: "This month" },
+              ],
+            },
+          ]}
+        />
+        <div className="module-toolbar-bottom">
+          <div className={`module-filter-group ${filtersActive ? "module-filter-group-active" : ""}`}>
+            <span className="module-filter-group-label">Filters</span>
+            <div className="module-filter-controls">
+              <select className="module-select" value={type} onChange={(e) => setType(e.target.value)} aria-label="Type">
+                <option value="">All types</option>
+                <option value="SALE">Sale</option>
+              </select>
+              <select className="module-select" value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">
+                <option value="">All statuses</option>
+                <option value="unpaid">Unpaid</option>
+                <option value="paid">Paid</option>
+                <option value="overdue">Overdue</option>
+              </select>
+              <select className="module-select" value={vat} onChange={(e) => setVat(e.target.value)} aria-label="VAT">
+                <option value="">All VAT</option>
+                <option value="VAT">VAT</option>
+                <option value="NON">Non-VAT</option>
+              </select>
+              <select className="module-select" value={when} onChange={(e) => setWhen(e.target.value)} aria-label="Period">
+                <option value="all">All dates</option>
+                <option value="today">Today</option>
+                <option value="week">This week</option>
+                <option value="month">This month</option>
+              </select>
+              <button type="button" className="module-filter-reset" disabled={!filtersActive} onClick={clearFilters}>
+                Reset
+              </button>
+            </div>
+          </div>
+          <div className="module-toolbar-actions">
+            <ExportButtons title="Invoices" filename="invoices.csv" headers={headers} rows={exportRows()} />
+          </div>
+        </div>
       </div>
-      <FilterChips
-        value={(status || "all") as "all" | "unpaid" | "paid" | "overdue"}
-        onChange={(v) => setStatus(v === "all" ? "" : v)}
-        items={[
-          { id: "all", label: "All", count: invoices.length },
-          { id: "unpaid", label: "Unpaid", count: unpaidN },
-          { id: "paid", label: "Paid", count: paidN },
-          { id: "overdue", label: "Overdue", count: invoices.filter(isOverdueInvoice).length },
-        ]}
-      />
-      <MobileFilters
-        title="Filter invoices"
-        onClear={() => { setQ(""); setType(""); setStatus(""); setVat(""); setWhen("all"); }}
-        fields={[
-          {
-            kind: "chips",
-            label: "Status",
-            value: status || "all",
-            onChange: (v) => setStatus(v === "all" ? "" : v),
-            options: [
-              { value: "all", label: "All" },
-              { value: "unpaid", label: "Unpaid" },
-              { value: "paid", label: "Paid" },
-              { value: "overdue", label: "Overdue" },
-            ],
-          },
-          {
-            kind: "select",
-            label: "Type",
-            value: type,
-            onChange: setType,
-            options: [{ value: "", label: "All types" }, { value: "SALE", label: "Sale" }],
-          },
-          {
-            kind: "select",
-            label: "VAT",
-            value: vat,
-            onChange: setVat,
-            options: [{ value: "", label: "All VAT types" }, { value: "VAT", label: "VAT" }, { value: "NON", label: "Non-VAT" }],
-          },
-          {
-            kind: "select",
-            label: "Period",
-            value: when,
-            onChange: setWhen,
-            options: [
-              { value: "all", label: "All dates" },
-              { value: "today", label: "Today" },
-              { value: "week", label: "This week" },
-              { value: "month", label: "This month" },
-            ],
-          },
-        ]}
-      />
       <Register
         rows={listing.sorted}
         pager={pager}
@@ -534,7 +543,7 @@ function InvoiceRegister({ invoices }: { invoices: Invoice[] }) {
         </table>
       </div>
       </Register>
-    </div>
+    </section>
   );
 }
 
@@ -675,11 +684,19 @@ function PaymentsRegister({ invoices }: { invoices: Invoice[] }) {
   }, [invoices, q, method]);
   const pager = usePager(rows, `${q}|${method}`);
   const headers = ["Date", "Invoice", "Customer", "Method", "Reference", "Amount"];
+  const payMethods = [...new Set(invoices.flatMap((inv) => (inv.payments || []).map((p) => p.method)))];
+  const clearPay = () => { setQ(""); setMethod(""); };
   return (
-    <div className="space-y-3">
-      <div className="toolbar">
-        <input className="min-w-[220px] flex-1" placeholder="Search payments…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <button className="btn-ghost" onClick={() => { setQ(""); setMethod(""); }}>Clear</button>
+    <div className="space-y-2">
+      <div className="toolbar toolbar-compact">
+        <input placeholder="Search payments…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <select value={method} onChange={(e) => setMethod(e.target.value)} aria-label="Payment method">
+          <option value="">All methods</option>
+          {payMethods.map((m) => (
+            <option key={m} value={m}>{m.replace(/_/g, " ")}</option>
+          ))}
+        </select>
+        <button type="button" className="btn-ghost text-xs" onClick={clearPay}>Clear</button>
         <ExportButtons
           title="Payments"
           filename="payments.csv"
@@ -689,20 +706,14 @@ function PaymentsRegister({ invoices }: { invoices: Invoice[] }) {
       </div>
       <MobileFilters
         title="Filter payments"
-        onClear={() => { setQ(""); setMethod(""); }}
+        onClear={clearPay}
         fields={[
           {
-            kind: "chips",
+            kind: "select",
             label: "Method",
-            value: method || "all",
-            onChange: (v) => setMethod(v === "all" ? "" : v),
-            options: [
-              { value: "all", label: "All" },
-              ...[...new Set(invoices.flatMap((inv) => (inv.payments || []).map((p) => p.method)))].map((m) => ({
-                value: m,
-                label: m.replace(/_/g, " "),
-              })),
-            ],
+            value: method,
+            onChange: setMethod,
+            options: [{ value: "", label: "All methods" }, ...payMethods.map((m) => ({ value: m, label: m.replace(/_/g, " ") }))],
           },
         ]}
       />
