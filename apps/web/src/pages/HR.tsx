@@ -3,7 +3,7 @@ import { Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { MobileFilters, prettyLabel } from "../components/filters";
 import { Register, useListSort } from "../components/register";
-import { EmptyRow, Modal, MteSelect, PageHeader, Pager, Stat, StatGrid, Tabs, mapSelectOptions, seriesByMonth, useQueryState } from "../components/ui";
+import { EmptyRow, Modal, MteSelect, PageHeader, Pager, Stat, StatGrid, mapSelectOptions, seriesByMonth, useQueryState } from "../components/ui";
 import { canModule, DEPARTMENTS } from "../lib/access";
 import { api, money } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -48,25 +48,18 @@ export function HR() {
     ? ["employees", "leave", "onleave", "advance", "attendance", "payroll", "reports"]
     : ["leave", "onleave", "advance", "reports"];
   const tab = (allowed.includes(tabRaw as Tab) ? tabRaw : allowed[0]) as Tab;
-  const setTab = (next: Tab) => setTabRaw(next);
+  const sectionTitle: Record<Tab, string> = {
+    employees: "Employees",
+    leave: "Leave requests",
+    onleave: "Who is away",
+    advance: "Salary advance",
+    attendance: "Attendance",
+    payroll: "Payroll",
+    reports: "HR reports",
+  };
   return (
     <div className="space-y-4 suite-dash">
-      <PageHeader eyebrow="Human resources" title="HR" />
-      <Tabs
-        value={tab}
-        onChange={setTab}
-        items={[
-          ...(admin ? [{ id: "employees" as const, label: "Employees" }] : []),
-          { id: "leave", label: "Leave requests" },
-          { id: "onleave", label: "Who is away" },
-          { id: "advance", label: "Salary advance" },
-          ...(admin ? [
-            { id: "attendance" as const, label: "Attendance" },
-            { id: "payroll" as const, label: "Payroll" },
-          ] : []),
-          { id: "reports" as const, label: "HR reports" },
-        ]}
-      />
+      <PageHeader eyebrow="Human resources" title={sectionTitle[tab]} />
       {tab === "employees" && admin && <EmployeesTab />}
       {tab === "employees" && admin && <StaffDirectory showStats={false} />}
       {tab === "leave" && (

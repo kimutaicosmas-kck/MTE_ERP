@@ -1,5 +1,6 @@
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { Cell, Pie, PieChart, Tooltip } from "recharts";
 import { money } from "../lib/api";
+import { ChartBox } from "./ChartBox";
 
 export const DONUT_COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#a855f7", "#06b6d4", "#ef4444", "#64748b", "#eab308"];
 
@@ -52,9 +53,9 @@ export function DonutChart({
 
   return (
     <div className={`donut-chart ${showLegend ? "has-legend" : ""}`}>
-      <div className="donut-chart-plot">
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+      <ChartBox className="donut-chart-plot" minHeight={220}>
+        {(w, h) => (
+          <PieChart width={w} height={h} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
             <Pie
               data={rows}
               dataKey="value"
@@ -73,8 +74,8 @@ export function DonutChart({
             </Pie>
             <Tooltip content={<DonutTip />} />
           </PieChart>
-        </ResponsiveContainer>
-      </div>
+        )}
+      </ChartBox>
       {showLegend && <DonutLegend items={legendItems} />}
     </div>
   );

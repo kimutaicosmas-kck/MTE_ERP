@@ -6,6 +6,7 @@ import { registerSW } from "virtual:pwa-register";
 import App from "./App";
 import "./index.css";
 import "./lib/theme";
+import { UI_BUILD } from "./lib/build-id";
 
 function queryShouldRetry(failureCount: number, err: unknown) {
   const msg = err instanceof Error ? err.message.toLowerCase() : "";
@@ -21,6 +22,9 @@ const client = new QueryClient({
 
 registerSW({
   immediate: true,
+  onNeedRefresh() {
+    window.location.reload();
+  },
   onRegisterError(error) {
     console.error("[PWA] Service worker registration failed:", error);
   },
@@ -38,13 +42,12 @@ registerSW({
       });
     }
   },
-  onNeedRefresh() {
-    window.location.reload();
-  },
   onOfflineReady() {
     console.info("[PWA] Ready for offline use");
   },
 });
+
+console.info(`[MTE ERP] UI build: ${UI_BUILD}`);
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

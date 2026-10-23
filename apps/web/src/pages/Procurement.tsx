@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { CheckCircle2, ClipboardList, FileStack, Package, Plus, Search, ShoppingCart, XCircle } from "lucide-react";
 import { Register, useListSort } from "../components/register";
 import { MobileFilters, prettyLabel } from "../components/filters";
-import { EmptyRow, ExportButtons, PageHeader, Pager, RowPdf, Stat, StatGrid, Tabs, seriesByMonth, useQueryState } from "../components/ui";
+import { EmptyRow, ExportButtons, PageHeader, Pager, RowPdf, Stat, StatGrid, seriesByMonth, useQueryState } from "../components/ui";
 import { api, downloadPurchasePdf, money } from "../lib/api";
 import { usePager } from "../lib/pager";
 import { useQuery } from "@tanstack/react-query";
@@ -97,15 +97,6 @@ export function Procurement() {
         <Stat icon={FileStack} label="All POs" value={stats.all} series={stats.monthly.map(() => 1)} chart="bars" to="/procurement?tab=all" />
         <Stat icon={XCircle} label="Cancelled" value={stats.cancelled} chart="ring" max={stats.all || 1} hint={stats.draft ? `${stats.draft} drafts` : undefined} to="/procurement?tab=all" />
       </StatGrid>
-      <Tabs
-        value={tab}
-        onChange={setTab}
-        items={[
-          { id: "open", label: "Open", count: stats.open },
-          { id: "received", label: "Received", count: stats.received },
-          { id: "all", label: "All POs", count: all.length },
-        ]}
-      />
       <section className="suite-panel suite-panel-table module-list-suite overflow-hidden">
         <div className="module-list-toolbar">
           <label className="module-search-field">

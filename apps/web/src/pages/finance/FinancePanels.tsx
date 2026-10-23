@@ -20,24 +20,84 @@ type Account = {
 };
 
 const FINANCE_QUICK = [
-  { label: "Receivables", to: "/finance?section=ar" },
-  { label: "Payables", to: "/finance?section=ap" },
-  { label: "Banking", to: "/finance?section=banking" },
-  { label: "Statements", to: "/finance?section=reports" },
+  { label: "Collect receivables", hint: "Invoices & aging", to: "/finance?section=overview" },
+  { label: "Pay suppliers", hint: "Bills & expenses", to: "/finance?section=ap" },
+  { label: "Bank & M-Pesa", hint: "Payments in/out", to: "/finance?section=banking" },
+  { label: "Ledger & reports", hint: "P&L, VAT, close", to: "/finance?section=reports" },
 ] as const;
 
-export function FinanceOverview({ dash }: { dash?: Record<string, number | null> }) {
+export function FinanceOverview({
+  dash,
+  unpaid = 0,
+  overdue = 0,
+  overdueAmount = 0,
+  onRecordPayment,
+  onStk,
+}: {
+  dash?: Record<string, number | null>;
+  unpaid?: number;
+  overdue?: number;
+  overdueAmount?: number;
+  onRecordPayment?: () => void;
+  onStk?: () => void;
+}) {
   if (!dash) return <p className="text-sm text-stone-500">Loading finance dashboard…</p>;
   return (
     <div className="space-y-4">
+      {(overdue > 0 || (dash.openBills ?? 0) > 0) && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {overdue > 0 && (
+            <Link to="/finance?section=ar&tab=collections" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 hover:border-amber-300">
+              <strong>{overdue} overdue invoice{overdue === 1 ? "" : "s"}</strong>
+              <div className="mt-0.5 text-amber-900/80">{money(overdueAmount)} outstanding — review aging</div>
+            </Link>
+          )}
+          {(dash.openBills ?? 0) > 0 && (
+            <Link to="/finance?section=ap" className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950 hover:border-sky-300">
+              <strong>{dash.openBills} supplier bill{(dash.openBills ?? 0) === 1 ? "" : "s"} open</strong>
+              <div className="mt-0.5 text-sky-900/80">{money(dash.accountsPayable ?? 0)} payable</div>
+            </Link>
+          )}
+        </div>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard label="Cash & bank" value={money(dash.cashBalance ?? 0)} />
+        <MetricCard label="Receivable" value={money(dash.accountsReceivable ?? 0)} sub={`${unpaid} open invoices`} />
+        <MetricCard label="Payable" value={money(dash.accountsPayable ?? 0)} sub={`Working capital ${money(dash.workingCapital ?? 0)}`} />
+        <MetricCard label="Net profit (YTD)" value={money(dash.netProfit ?? 0)} sub={`Revenue ${money(dash.monthlyRevenue ?? 0)}`} />
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {onRecordPayment && (
+          <button type="button" className="btn-success module-btn-sm" onClick={onRecordPayment}>Record customer payment</button>
+        )}
+        {onStk && (
+          <button type="button" className="btn-gold module-btn-sm" onClick={onStk}>Send M-Pesa STK</button>
+        )}
+        <Link to="/finance?section=ap" className="btn-ghost module-btn-sm">Pay a supplier bill</Link>
+        <Link to="/finance?section=books&book=journals" className="btn-ghost module-btn-sm">Post journal entry</Link>
+      </div>
+
       <div className="dash-insight-grid">
         {FINANCE_QUICK.map((link) => (
           <Link key={link.to} to={link.to} className="dash-insight-card group">
             <span className="font-semibold text-ink">{link.label}</span>
+            <span className="mt-1 block text-xs text-stone-500">{link.hint}</span>
             <ChevronRight size={16} className="mt-2 text-stone-400 group-hover:text-gold" aria-hidden />
           </Link>
         ))}
       </div>
+    </div>
+  );
+}
+
+function MetricCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="rounded-xl border border-stone-200/80 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-white/5">
+      <div className="text-xs font-semibold uppercase tracking-wide text-stone-500">{label}</div>
+      <div className="mt-1 text-lg font-bold tracking-tight text-ink">{value}</div>
+      {sub && <div className="mt-0.5 text-xs text-stone-500">{sub}</div>}
     </div>
   );
 }

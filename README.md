@@ -32,6 +32,14 @@ Password for every account: `Mte@2026`
 | warehouse@mte.local | Warehouse |
 | finance@mte.local | Finance |
 
+**CEO / executive walkthrough:** see [docs/CEO_TESTING.md](docs/CEO_TESTING.md).
+
+**Smoke test before demo:** `node scripts/e2e-test.mjs http://localhost:4000 http://localhost:5173`
+
+## Production / public demo security
+
+Before any internet-facing deploy: set strong `JWT_SECRET`, MySQL passwords, and demo URLs in `.env` (see `.env.demo-server.example` and `DEPLOY_DEMO_ABEXCORE.md`). Do not use default `Mte@2026` on a public site.
+
 ## Local npm (MySQL still from Docker)
 
 ```bash

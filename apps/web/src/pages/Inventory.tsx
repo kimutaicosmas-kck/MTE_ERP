@@ -2,14 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowDownToLine, ArrowUpFromLine, Boxes, Lock, Package, Plus, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { BarcodeScan } from "../components/BarcodeScan";
 import { MachinePartSearch } from "../components/MachinePartSearch";
 import { CaptureField } from "../components/CaptureField";
 import { ImportButton } from "../components/ImportButton";
-import { Register, useListSort } from "../components/register";
+import { FilterChips, Register, useListSort } from "../components/register";
 import { MobileFilters } from "../components/filters";
-import { ModuleNav } from "../components/ModuleNav";
-import { EmptyRow, ExportButtons, Modal, PageHeader, Pager, Stat, StatGrid, Tabs, useCreateOpen, useQueryState } from "../components/ui";
+import { EmptyRow, ExportButtons, Modal, PageHeader, Pager, Stat, StatGrid, useCreateOpen, useQueryState } from "../components/ui";
 import { ModuleReportsPanel } from "../components/ModuleReportsPanel";
 import { InvDash, InventoryMovements, InventoryOverview, InventoryWarehouses } from "./inventory/InventoryPanels";
 import { canModule } from "../lib/access";
@@ -159,7 +157,14 @@ export function Inventory() {
 
   return (
     <div className="space-y-4 suite-dash">
-      <PageHeader eyebrow="Stock" title="Inventory" />
+      <PageHeader
+        eyebrow="Stock"
+        title={
+          section === "products" || section === "reorder"
+            ? "Item master"
+            : INVENTORY_SECTIONS.find((s) => s.id === section)?.label || "Inventory"
+        }
+      />
       <StatGrid cols={6}>
         <Stat
           label="Stock value"
@@ -216,12 +221,6 @@ export function Inventory() {
           to="/inventory?section=movements"
         />
       </StatGrid>
-      <ModuleNav
-        items={[...INVENTORY_SECTIONS]}
-        value={section}
-        onChange={(id) => setSection(id as InventorySection)}
-      />
-
       {section === "overview" && <InventoryOverview dash={dash.data} />}
       {section === "movements" && <InventoryMovements />}
       {section === "reports" && <ModuleReportsPanel moduleId="inventory" />}
@@ -229,7 +228,7 @@ export function Inventory() {
 
       {showCatalog && (
       <>
-      <Tabs
+      <FilterChips
         value={tab}
         onChange={setTab}
         items={[
@@ -283,7 +282,6 @@ export function Inventory() {
               </div>
             </div>
             <div className="module-toolbar-actions">
-              <BarcodeScan onDetect={(code) => setQ(code)} />
               {user?.role !== "SALES" && <ImportButton kind="parts" label="Import products" />}
               <ExportButtons
                 title="Products"

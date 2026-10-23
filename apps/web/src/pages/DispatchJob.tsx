@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { BarcodeScan } from "../components/BarcodeScan";
 import { CaptureField } from "../components/CaptureField";
 import { MteSelect, OrderDocs, mapSelectOptions } from "../components/ui";
 import { api, money } from "../lib/api";
@@ -9,9 +8,6 @@ import {
   DISPATCH_LABEL,
   DISPATCH_METHODS,
   DISPATCH_NEXT,
-  DISPATCH_STEPS,
-  dispatchStepLabel,
-  dispatchStepOn,
 } from "../lib/dispatch-status";
 import { useSetPageTitle } from "../lib/page-title";
 
@@ -100,7 +96,7 @@ export function DispatchJob() {
 
   const next = o ? DISPATCH_NEXT[o.status] : undefined;
   const picking = o && ["CONFIRMED", "PICKING", "PACKING"].includes(o.status);
-  const shipping = o && ["PICKED", "DISPATCHED", "IN_TRANSIT"].includes(o.status);
+  const shipping = o && ["PICKED", "DISPATCHED", "IN_TRANSIT", "DELAYED"].includes(o.status);
   const delivering = o && next?.status === "DELIVERED";
 
   const pickComplete = useMemo(() => {
@@ -129,9 +125,22 @@ export function DispatchJob() {
     setScanMsg(`Picked ${hit.part?.name} (${cur + 1}/${hit.qty})`);
   }
 
+  function pickAll() {
+    if (!o?.lines) return;
+    const p: Record<string, number> = {};
+    for (const l of o.lines) p[l.id] = l.qty;
+    setPicked(p);
+    setScanMsg("");
+  }
+
   async function tryAdvance() {
-    if (!next) return;
+    if (!next || !o) return;
     const target = next.status;
+    const extras = {
+      tracking: tracking || undefined,
+      vehicleId: vehicleId || undefined,
+    };
+    setScanMsg("");
     try {
       if (target === "PICKED") {
         await savePick.mutateAsync();
@@ -141,11 +150,7 @@ export function DispatchJob() {
       if (target === "DELIVERED") {
         await savePod.mutateAsync();
       }
-      move.mutate({
-        status: target,
-        tracking: tracking || undefined,
-        vehicleId: vehicleId || undefined,
-      });
+      await move.mutateAsync({ status: target, ...extras });
     } catch (e) {
       setScanMsg(e instanceof Error ? e.message : "Could not save");
     }
@@ -177,16 +182,10 @@ export function DispatchJob() {
         </span>
       </div>
 
-      <ol className="suite-doc-steps !mb-0 overflow-x-auto" style={{ ["--doc-ink" as string]: "#059669", ["--doc-dark" as string]: "#047857" }}>
-        {DISPATCH_STEPS.map((s) => (
-          <li key={s} className={dispatchStepOn(s, o.status) ? "is-on" : ""}>{dispatchStepLabel(s)}</li>
-        ))}
-      </ol>
-
       {next && o.status !== "CANCELLED" && (
         <div className="card space-y-3">
           <h2 className="font-semibold">What to do now</h2>
-          {shipping && o.status === "PICKED" && (
+          {shipping && (o.status === "PICKED" || o.status === "DISPATCHED") && (
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <label>Vehicle (optional)</label>
@@ -232,7 +231,14 @@ export function DispatchJob() {
             </button>
             <OrderDocs orderId={o.id} status={o.status} />
           </div>
-          {move.error && <p className="text-sm text-red-600">{(move.error as Error).message}</p>}
+          {(move.error || savePick.error || savePack.error || saveQc.error || savePod.error) && (
+            <p className="text-sm text-red-600">
+              {((move.error || savePick.error || savePack.error || saveQc.error || savePod.error) as Error).message}
+            </p>
+          )}
+          {next.status === "PICKED" && !pickComplete && (
+            <p className="text-sm text-amber-800">Pick every line (use Pick all) before marking ready to ship.</p>
+          )}
         </div>
       )}
 
@@ -240,8 +246,10 @@ export function DispatchJob() {
         <div className="card space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-semibold">Items to pick</h2>
-            <div className="flex items-center gap-2">
-              <BarcodeScan onDetect={onScan} />
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" className="btn-ghost px-3 py-1 text-xs" onClick={pickAll}>
+                Pick all
+              </button>
               <input
                 className="w-40"
                 placeholder="Type SKU…"

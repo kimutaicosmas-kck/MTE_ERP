@@ -1,14 +1,15 @@
 import { FormEvent, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { MteSelect, PageHeader, mapSelectOptions } from "../components/ui";
 import { api } from "../lib/api";
 
 export function PurchaseNew() {
   const nav = useNavigate();
+  const [params] = useSearchParams();
   const vendors = useQuery({ queryKey: ["vendors"], queryFn: () => api<any[]>("/api/vendors") });
   const parts = useQuery({ queryKey: ["parts"], queryFn: () => api<any[]>("/api/parts") });
-  const [vendorId, setVendorId] = useState("");
+  const [vendorId, setVendorId] = useState(() => params.get("vendorId") || "");
   const [reference, setReference] = useState("");
   const [expectedAt, setExpectedAt] = useState("");
   const [notes, setNotes] = useState("");

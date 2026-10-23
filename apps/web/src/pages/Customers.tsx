@@ -6,7 +6,7 @@ import { CaptureField } from "../components/CaptureField";
 import { ImportButton } from "../components/ImportButton";
 import { MobileFilters } from "../components/filters";
 import { Register, useListSort } from "../components/register";
-import { EmptyRow, ExportButtons, Modal, MteSelect, PageHeader, Pager, Stat, StatGrid, Tabs, mapSelectOptions, useCreateOpen, useQueryState } from "../components/ui";
+import { EmptyRow, ExportButtons, Modal, MteSelect, PageHeader, Pager, Stat, StatGrid, mapSelectOptions, useCreateOpen, useQueryState } from "../components/ui";
 import { api, downloadCustomerStatement, money } from "../lib/api";
 import { downloadCsv, printTable } from "../lib/export";
 import { useAuth } from "../lib/auth";
@@ -47,25 +47,12 @@ export function Customers() {
   }, [params]);
   return (
     <div className="space-y-4 suite-dash">
-      <PageHeader eyebrow="Directory" title="Customers" />
+      <PageHeader eyebrow="Directory" title={tab === "balances" ? "Balance summary" : "Customers"} />
       {tab === "directory"
         ? <CustomerDirectory tab={tab} setTab={setTab} onStatement={setStatementId} />
         : <BalanceSummary tab={tab} setTab={setTab} onStatement={setStatementId} />}
       {statementId && <CustomerStatement id={statementId} onClose={() => setStatementId(null)} />}
     </div>
-  );
-}
-
-function CustomerTabs({ tab, setTab, customers, owing }: { tab: Tab; setTab: (t: Tab) => void; customers?: number; owing?: number }) {
-  return (
-    <Tabs
-      value={tab}
-      onChange={setTab}
-      items={[
-        { id: "directory", label: "Customers", count: customers },
-        { id: "balances", label: "Balance summary", count: owing },
-      ]}
-    />
   );
 }
 
@@ -115,7 +102,6 @@ function CustomerDirectory({ tab, setTab, onStatement }: { tab: Tab; setTab: (t:
         <Stat icon={UserCheck} label="Clear accounts" value={stats.clear} chart="ring" max={stats.count || 1} to="/customers?tab=directory&balance=clear" />
         <Stat icon={CreditCard} label="Avg balance" value={stats.owing ? money(Math.round(stats.outstanding / stats.owing)) : money(0)} chart="spark" series={data.filter((c) => c.outstanding > 1).slice(0, 8).map((c) => c.outstanding)} to="/customers?tab=balances" />
       </StatGrid>
-      <CustomerTabs tab={tab} setTab={setTab} customers={stats.count} owing={stats.owing} />
       <section className="suite-panel suite-panel-table module-list-suite overflow-hidden">
         <div className="module-list-toolbar">
           <label className="module-search-field">
@@ -422,7 +408,6 @@ function BalanceSummary({ tab, setTab, onStatement }: { tab: Tab; setTab: (t: Ta
         <Stat icon={UserCheck} label="With balance" value={rows.filter((r) => r.balance > 1).length} chart="ring" max={rows.length || 1} to="/customers?tab=balances" />
         <Stat icon={Wallet} label="Largest balance" value={rows.length ? ksh(Math.max(...rows.map((r) => r.balance))) : "—"} chart="spark" series={rows.slice().sort((a, b) => b.balance - a.balance).slice(0, 6).map((r) => r.balance)} to="/customers?tab=balances" />
       </StatGrid>
-      <CustomerTabs tab={tab} setTab={setTab} customers={rows.length} owing={rows.filter((r) => r.balance > 1).length} />
     <div className="overflow-x-auto rounded-2xl border border-stone-200 bg-white">
       <div className="flex items-start justify-between gap-3 border-b border-stone-100 px-6 py-5">
         <div>

@@ -138,7 +138,10 @@ export async function readSession(sid: string) {
 export async function destroySession(sid?: string, userId?: string) {
   if (!client || !ready || !sid) return;
   await client.del(`sess:${sid}`, `sess:touch:${sid}`);
-  if (userId) await client.srem(`user:sess:${userId}`, sid);
+  if (userId) {
+    await client.srem(`user:sess:${userId}`, sid);
+    await client.del(`user:acl:${userId}`);
+  }
 }
 
 export async function destroyUserSessions(userId: string) {

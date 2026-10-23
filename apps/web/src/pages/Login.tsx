@@ -1,13 +1,15 @@
 import { FormEvent, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
 import {
+  ArrowRight,
   BarChart3,
   Boxes,
-  ChevronRight,
   Eye,
   EyeOff,
   Factory,
-  Hexagon,
+  Lock,
+  Mail,
   ShieldCheck,
   ShoppingCart,
   Wallet,
@@ -25,10 +27,10 @@ const demos = [
 ] as const;
 
 const features = [
-  { icon: Factory, title: "Procurement & vendors", text: "Purchase orders, receipts & supplier bills" },
-  { icon: Boxes, title: "Inventory control", text: "Real-time stock across warehouse locations" },
-  { icon: ShoppingCart, title: "Sales & delivery", text: "Quotations, orders, invoices & dispatch" },
-  { icon: Wallet, title: "Finance & reports", text: "AR/AP ledgers, M-Pesa & dashboards" },
+  { icon: Factory, title: "Procurement", text: "POs, receipts & supplier bills" },
+  { icon: Boxes, title: "Inventory", text: "Live stock & warehouse bins" },
+  { icon: ShoppingCart, title: "Sales", text: "Quotes, orders & dispatch" },
+  { icon: Wallet, title: "Finance", text: "Invoices, M-Pesa & reports" },
 ];
 
 type Mode = "login" | "mfa" | "forgot" | "reset";
@@ -101,40 +103,50 @@ export function Login() {
   }
 
   const titles: Record<Mode, string> = {
-    login: "Sign in",
-    mfa: "Verification",
+    login: "Welcome back",
+    mfa: "Verify it’s you",
     forgot: "Reset password",
-    reset: "New password",
+    reset: "Choose a new password",
   };
 
   const subtitles: Record<Mode, string> = {
-    login: "Access your MTE ERP workspace",
-    mfa: "Enter the 6-digit code from your authenticator app",
-    forgot: "We will notify Super Admin to issue a reset code",
-    reset: "Enter the code you received and set a new password",
+    login: "Sign in to manage sales, stock, and finance in one place.",
+    mfa: "Enter the 6-digit code from your authenticator app.",
+    forgot: "We’ll notify your Super Admin to issue a reset code.",
+    reset: "Use the code you received and set a strong new password.",
   };
 
   return (
     <div className="login-page">
-      <aside className="login-brand">
-        <div className="login-brand-glow" aria-hidden />
-        <div className="login-brand-grid" aria-hidden />
+      <div className="login-ambient" aria-hidden>
+        <span className="login-orb login-orb-a" />
+        <span className="login-orb login-orb-b" />
+        <span className="login-orb login-orb-c" />
+      </div>
 
+      <aside className="login-brand">
+        <div className="login-brand-grid" aria-hidden />
         <div className="login-brand-inner">
-          <div className="login-brand-hero">
-            <span className="login-logo">
-              <Hexagon size={28} strokeWidth={1.5} />
+          <div className="login-brand-mark">
+            <span className="login-logo" aria-hidden>
+              <BarChart3 size={26} strokeWidth={1.75} />
             </span>
-            <h1 className="login-brand-title">MTE ERP</h1>
-            <p className="login-brand-desc">
-              Complete enterprise resource planning for parts procurement, inventory, sales, dispatch, and finance.
-            </p>
+            <div className="login-brand-text">
+              <h1 className="login-brand-title">MTE ERP</h1>
+              <p className="login-brand-tag">Enterprise operations platform</p>
+            </div>
           </div>
+
+          <p className="login-brand-desc">
+            Run procurement, inventory, sales, dispatch, and finance from a single workspace built for parts and equipment businesses.
+          </p>
 
           <div className="login-feature-grid">
             {features.map(({ icon: Icon, title, text }) => (
               <div key={title} className="login-feature-card">
-                <span className="login-feature-icon"><Icon size={18} strokeWidth={1.75} /></span>
+                <span className="login-feature-icon">
+                  <Icon size={20} strokeWidth={1.75} />
+                </span>
                 <div>
                   <div className="login-feature-title">{title}</div>
                   <div className="login-feature-text">{text}</div>
@@ -143,20 +155,39 @@ export function Login() {
             ))}
           </div>
 
-          <a className="login-brand-link" href="/" onClick={(e) => e.preventDefault()}>
-            <BarChart3 size={14} />
-            Unified dashboard for parts &amp; operations
-            <ChevronRight size={14} />
-          </a>
+          <div className="login-brand-stats">
+            <div>
+              <strong>Real-time</strong>
+              <span>Stock &amp; orders</span>
+            </div>
+            <div>
+              <strong>Secure</strong>
+              <span>Role-based access</span>
+            </div>
+            <div>
+              <strong>Mobile</strong>
+              <span>Works offline</span>
+            </div>
+          </div>
         </div>
 
-        <p className="login-brand-powered">Powered by MTE ERP</p>
+        <p className="login-brand-powered">
+          Powered by <strong>AbexCore Technologies</strong>
+        </p>
       </aside>
 
       <main className="login-main">
-        <div className="login-card">
-          <div className="login-card-icon">
-            <ShieldCheck size={22} strokeWidth={1.75} />
+        <motion.div
+          className="login-card"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <div className="login-mobile-mark">
+            <span className="login-logo login-logo-sm" aria-hidden>
+              <BarChart3 size={22} strokeWidth={1.75} />
+            </span>
+            <span className="login-mobile-title">MTE ERP</span>
           </div>
 
           <div className="login-card-head">
@@ -173,33 +204,37 @@ export function Login() {
           <form onSubmit={onSubmit} className="login-form">
             {mode !== "mfa" && (
               <label className="login-field">
-                <span>Email</span>
-                <input
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value.slice(0, 120))}
-                  type="email"
-                  autoComplete="username"
-                  placeholder="you@mte.local"
-                  required
-                  maxLength={120}
-                  className="login-input login-input-fill"
-                />
+                <span>Email address</span>
+                <span className="login-input-wrap">
+                  <Mail size={17} className="login-input-icon" aria-hidden />
+                  <input
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value.slice(0, 120))}
+                    type="email"
+                    autoComplete="username"
+                    placeholder="you@company.com"
+                    required
+                    maxLength={120}
+                    className="login-input"
+                  />
+                </span>
               </label>
             )}
 
             {mode === "login" && (
               <label className="login-field">
                 <span>Password</span>
-                <span className="login-pass-wrap">
+                <span className="login-input-wrap login-pass-wrap">
+                  <Lock size={17} className="login-input-icon" aria-hidden />
                   <input
                     value={password}
                     onChange={(e) => setPassword(e.target.value.slice(0, 128))}
                     type={showPass ? "text" : "password"}
                     autoComplete="current-password"
-                    placeholder="••••••••"
+                    placeholder="Enter your password"
                     required
                     maxLength={128}
-                    className="login-input login-input-fill"
+                    className="login-input"
                   />
                   <button
                     type="button"
@@ -207,7 +242,7 @@ export function Login() {
                     onClick={() => setShowPass((v) => !v)}
                     aria-label={showPass ? "Hide password" : "Show password"}
                   >
-                    {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                    {showPass ? <EyeOff size={17} /> : <Eye size={17} />}
                   </button>
                 </span>
               </label>
@@ -216,37 +251,54 @@ export function Login() {
             {(mode === "mfa" || mode === "reset") && (
               <label className="login-field">
                 <span>6-digit code</span>
-                <input
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  inputMode="numeric"
-                  placeholder="000000"
-                  required
-                  minLength={6}
-                  maxLength={8}
-                  className="login-input login-input-fill login-code"
-                />
+                <span className="login-input-wrap">
+                  <ShieldCheck size={17} className="login-input-icon" aria-hidden />
+                  <input
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    inputMode="numeric"
+                    placeholder="000000"
+                    required
+                    minLength={6}
+                    maxLength={8}
+                    className="login-input login-code"
+                  />
+                </span>
               </label>
             )}
 
             {mode === "reset" && (
               <label className="login-field">
                 <span>New password</span>
-                <input
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder="At least 8 characters"
-                  required
-                  minLength={8}
-                  className="login-input login-input-fill"
-                />
+                <span className="login-input-wrap">
+                  <Lock size={17} className="login-input-icon" aria-hidden />
+                  <input
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="At least 8 characters"
+                    required
+                    minLength={8}
+                    className="login-input"
+                  />
+                </span>
               </label>
             )}
 
             <button type="submit" className="login-submit" disabled={busy}>
-              {busy ? "Please wait…" : mode === "login" ? "Sign in" : mode === "mfa" ? "Verify" : mode === "forgot" ? "Send request" : "Update password"}
+              <span>
+                {busy
+                  ? "Please wait…"
+                  : mode === "login"
+                    ? "Sign in"
+                    : mode === "mfa"
+                      ? "Verify"
+                      : mode === "forgot"
+                        ? "Send request"
+                        : "Update password"}
+              </span>
+              {!busy && <ArrowRight size={18} aria-hidden />}
             </button>
 
             <div className="login-links">
@@ -264,6 +316,7 @@ export function Login() {
 
           {mode === "login" && (
             <div className="login-demo">
+              <p className="login-demo-label">Quick access · demo accounts</p>
               <div className="login-demo-grid">
                 {demos.map((d) => (
                   <button
@@ -279,8 +332,15 @@ export function Login() {
               </div>
             </div>
           )}
-          <p className="login-card-foot">Secure enterprise access</p>
-        </div>
+
+          <p className="login-card-foot">
+            <ShieldCheck size={13} aria-hidden />
+            Encrypted sign-in · role-based permissions
+          </p>
+          <p className="login-powered-abex">
+            Powered by <strong>AbexCore Technologies</strong>
+          </p>
+        </motion.div>
       </main>
     </div>
   );

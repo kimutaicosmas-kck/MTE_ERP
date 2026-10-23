@@ -20,30 +20,31 @@ export const DISPATCH_NEXT: Record<string, { status: string; label: string; succ
   PICKING: { status: "PICKED", label: "Mark ready to ship" },
   PACKING: { status: "PICKED", label: "Mark ready to ship" },
   PICKED: { status: "DISPATCHED", label: "Mark as shipped" },
-  DISPATCHED: { status: "DELIVERED", label: "Confirm delivery", success: true },
+  DISPATCHED: { status: "IN_TRANSIT", label: "Mark on the way" },
   IN_TRANSIT: { status: "DELIVERED", label: "Confirm delivery", success: true },
   DELAYED: { status: "DELIVERED", label: "Confirm delivery", success: true },
   FAILED: { status: "PICKING", label: "Start over" },
 };
 
-/** Simple list filters — group related backend statuses together. */
+/** Simple list filters — four stages users understand. */
 export const DISPATCH_TABS = [
-  ["all", "All"],
-  ["pick", "To pick"],
-  ["ready", "Ready to ship"],
+  ["all", "All active"],
+  ["pick", "To pick & pack"],
   ["shipping", "On the way"],
   ["done", "Delivered"],
-  ["problems", "Problems"],
 ] as const;
 
 export const DISPATCH_TAB_STATUSES: Record<string, string[] | null> = {
   all: null,
-  pick: ["CONFIRMED", "PICKING", "PACKING"],
-  ready: ["PICKED"],
-  shipping: ["DISPATCHED", "IN_TRANSIT"],
+  pick: ["CONFIRMED", "PICKING", "PACKING", "PICKED"],
+  shipping: ["DISPATCHED", "IN_TRANSIT", "DELAYED"],
   done: ["DELIVERED", "PARTIAL_DELIVERED"],
   problems: ["FAILED", "DELAYED", "RETURNED"],
 };
+
+export function isDispatchProblem(status: string) {
+  return ["FAILED", "RETURNED"].includes(status);
+}
 
 export function matchesDispatchTab(status: string, tab: string) {
   if (tab === "all") return true;

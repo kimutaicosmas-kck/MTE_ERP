@@ -5,15 +5,17 @@ import { Link, useNavigate } from "react-router-dom";
 import { BranchFilter } from "../components/BranchFilter";
 import { MobileFilters, prettyLabel } from "../components/filters";
 import { Register, useListSort } from "../components/register";
-import { EmptyRow, PageHeader, Stat, StatGrid, Tabs, seriesByDay, useQueryState } from "../components/ui";
+import { EmptyRow, PageHeader, Stat, StatGrid, seriesByDay, useQueryState } from "../components/ui";
 import { api } from "../lib/api";
 import {
   countDispatchTab,
   DISPATCH_LABEL,
   DISPATCH_TABS,
+  isDispatchProblem,
   matchesDispatchTab,
 } from "../lib/dispatch-status";
 import { usePager } from "../lib/pager";
+import { MobileModuleChips } from "../components/MobileModuleChips";
 
 type Dash = {
   queue: Record<string, number>;
@@ -29,6 +31,8 @@ type OrderRow = {
   customer?: { name: string };
 };
 
+const DISPATCH_TAB_IDS = new Set(DISPATCH_TABS.map(([id]) => id));
+
 export function Dispatch() {
   const nav = useNavigate();
   const [branch, setBranch] = useQueryState("branch", "");
@@ -42,8 +46,14 @@ export function Dispatch() {
     queryFn: () => api<OrderRow[]>(`/api/orders${branch ? `?branchId=${branch}` : ""}`),
   });
   const [q, setQ] = useState("");
-  const [tab, setTab] = useQueryState("tab", "all");
-  const [method, setMethod] = useState("");
+  const [tabRaw, setTab] = useQueryState("tab", "all");
+  const tab = DISPATCH_TAB_IDS.has(tabRaw as (typeof DISPATCH_TABS)[number][0])
+    ? tabRaw
+    : tabRaw === "ready" || tabRaw === "problems"
+      ? tabRaw === "ready"
+        ? "pick"
+        : "all"
+      : "all";
   const qd = dash.data?.queue || {};
 
   const queue = useMemo(() => {
@@ -60,7 +70,12 @@ export function Dispatch() {
       );
     return {
       pick: byTab("pick"),
-      ready: byTab("ready"),
+      ready: seriesByDay(
+        queue.filter((o) => o.status === "PICKED"),
+        (o) => o.createdAt,
+        () => 1,
+        14,
+      ),
       shipping: byTab("shipping"),
       done: byTab("done"),
     };
@@ -69,61 +84,50 @@ export function Dispatch() {
   const rows = useMemo(() => {
     return queue.filter((o) => {
       if (!matchesDispatchTab(o.status, tab)) return false;
-      if (method && o.dispatchMethod !== method) return false;
       return `${o.number} ${o.customer?.name || ""}`.toLowerCase().includes(q.toLowerCase());
     });
-  }, [queue, q, tab, method]);
+  }, [queue, q, tab]);
 
   const listing = useListSort(rows, [
     { id: "status", label: "Status", get: (o) => o.status, dir: "asc" },
     { id: "number", label: "Order #", get: (o) => o.number, dir: "asc" },
     { id: "customer", label: "Customer A–Z", get: (o) => o.customer?.name || "", dir: "asc" },
   ], "status");
-  const pager = usePager(listing.sorted, `${tab}|${q}|${method}|${listing.sort}`);
+  const pager = usePager(listing.sorted, `${tab}|${q}|${listing.sort}`);
 
-  const toPick = countDispatchTab(queue, "pick");
-  const ready = countDispatchTab(queue, "ready");
+  const toPick = queue.filter((o) => ["CONFIRMED", "PICKING", "PACKING"].includes(o.status)).length;
+  const ready = queue.filter((o) => o.status === "PICKED").length;
   const shipping = countDispatchTab(queue, "shipping");
   const doneToday = qd.deliveredToday ?? countDispatchTab(queue, "done");
-  const problems = countDispatchTab(queue, "problems");
+  const problems = queue.filter((o) => isDispatchProblem(o.status) || o.status === "DELAYED").length;
   const queueSize = Math.max(queue.length, 1);
-
-  const methods = useMemo(
-    () => [...new Set(queue.map((o) => o.dispatchMethod).filter(Boolean))] as string[],
-    [queue],
-  );
 
   function clearFilters() {
     setQ("");
     setTab("all");
-    setMethod("");
   }
 
-  const filtersActive = Boolean(q || tab !== "all" || method || branch);
+  const filtersActive = Boolean(q || tab !== "all" || branch);
 
   const filterFields = [
     {
       kind: "chips" as const,
-      label: "Status",
+      label: "Stage",
       value: tab,
       onChange: setTab,
       options: DISPATCH_TABS.map(([id, label]) => ({ value: id, label })),
-    },
-    {
-      kind: "select" as const,
-      label: "Method",
-      value: method,
-      onChange: setMethod,
-      options: [
-        { value: "", label: "All methods" },
-        ...methods.map((m) => ({ value: m, label: prettyLabel(m) })),
-      ],
     },
   ];
 
   return (
     <div className="space-y-4 suite-dash">
       <PageHeader eyebrow="Warehouse" title="Dispatch" />
+      {problems > 0 && (
+        <p className="flex items-center gap-2 text-sm text-amber-900 card !py-2 !px-3.5 bg-amber-50 border-amber-200">
+          <AlertTriangle size={16} aria-hidden />
+          {problems} order{problems === 1 ? "" : "s"} need attention — check the list for Problem or Late status.
+        </p>
+      )}
       <StatGrid cols={6}>
         <Stat
           icon={Package}
@@ -132,7 +136,7 @@ export function Dispatch() {
           series={charts.pick}
           chart="bars"
           share={toPick / queueSize}
-          hint={`${toPick} in picking queue`}
+          hint={`${toPick} awaiting pick`}
           to="/dispatch?tab=pick"
         />
         <Stat
@@ -143,7 +147,7 @@ export function Dispatch() {
           chart="bars"
           share={ready / queueSize}
           hint={`${ready} packed and waiting`}
-          to="/dispatch?tab=ready"
+          to="/dispatch?tab=pick"
         />
         <Stat
           icon={Truck}
@@ -178,15 +182,17 @@ export function Dispatch() {
           value={problems}
           chart="ring"
           max={Math.max(queue.length, 1)}
-          hint={problems ? "Review issues tab" : "None flagged"}
-          to="/dispatch?tab=problems"
+          hint={problems ? "Review problem orders" : "None flagged"}
+          to="/dispatch?tab=all"
         />
       </StatGrid>
 
-      <Tabs
-        value={tab}
-        onChange={setTab}
-        items={DISPATCH_TABS.map(([id, label]) => ({ id, label, count: countDispatchTab(queue, id) }))}
+      <MobileModuleChips
+        chips={DISPATCH_TABS.map(([id, label]) => ({
+          label,
+          to: `/dispatch?tab=${id}`,
+          count: countDispatchTab(queue, id),
+        }))}
       />
 
       <section className="suite-panel suite-panel-table module-list-suite overflow-hidden">
@@ -206,12 +212,6 @@ export function Dispatch() {
               <span className="module-filter-group-label">Filters</span>
               <div className="module-filter-controls">
                 <BranchFilter value={branch} onChange={setBranch} className="module-select" />
-                <select className="module-select" value={method} onChange={(e) => setMethod(e.target.value)} aria-label="Delivery method">
-                  <option value="">All delivery methods</option>
-                  {methods.map((m) => (
-                    <option key={m} value={m}>{prettyLabel(m)}</option>
-                  ))}
-                </select>
                 <button type="button" className="module-filter-reset" disabled={!filtersActive} onClick={clearFilters}>
                   Reset
                 </button>

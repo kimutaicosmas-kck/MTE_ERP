@@ -1,17 +1,18 @@
 import type { Request, Response, NextFunction } from "express";
 import { cacheGet, cacheInvalidate, cacheSet } from "../lib/redis.js";
+import { authenticateToken, tokenFromRequest } from "../lib/session-auth.js";
 
 type Rule = { test: RegExp; ttl: number; tag: string; vary: "none" | "role" | "user" };
 
 const RULES: Rule[] = [
   { test: /^\/api\/parts\/?$/, ttl: 20, tag: "parts", vary: "role" },
-  { test: /^\/api\/customers\/?$/, ttl: 20, tag: "customers", vary: "none" },
-  { test: /^\/api\/vendors\/?$/, ttl: 30, tag: "vendors", vary: "none" },
-  { test: /^\/api\/users\/?$/, ttl: 20, tag: "users", vary: "none" },
-  { test: /^\/api\/settings\/?$/, ttl: 45, tag: "settings", vary: "none" },
+  { test: /^\/api\/customers\/?$/, ttl: 20, tag: "customers", vary: "user" },
+  { test: /^\/api\/vendors\/?$/, ttl: 30, tag: "vendors", vary: "user" },
+  { test: /^\/api\/users\/?$/, ttl: 20, tag: "users", vary: "user" },
+  { test: /^\/api\/settings\/?$/, ttl: 45, tag: "settings", vary: "user" },
   { test: /^\/api\/dashboard\/?$/, ttl: 15, tag: "dashboard", vary: "user" },
-  { test: /^\/api\/finance\/invoices\/?$/, ttl: 12, tag: "invoices", vary: "none" },
-  { test: /^\/api\/finance\/accounts\/?$/, ttl: 60, tag: "accounts", vary: "none" },
+  { test: /^\/api\/finance\/invoices\/?$/, ttl: 12, tag: "invoices", vary: "user" },
+  { test: /^\/api\/finance\/accounts\/?$/, ttl: 60, tag: "accounts", vary: "user" },
   { test: /^\/api\/reports\//, ttl: 25, tag: "reports", vary: "user" },
   { test: /^\/api\/orders\/?$/, ttl: 12, tag: "orders", vary: "user" },
 ];
@@ -57,8 +58,16 @@ export function cacheLayer(req: Request, res: Response, next: NextFunction) {
     const rule = ruleFor(path);
     if (!rule) return next();
     const key = cacheKey(req, rule);
-    cacheGet(key).then((hit) => {
+    cacheGet(key).then(async (hit) => {
       if (hit != null) {
+        const token = tokenFromRequest(req);
+        if (token) {
+          try {
+            await authenticateToken(token);
+          } catch {
+            return res.status(401).json({ error: "Session expired" });
+          }
+        }
         res.setHeader("X-Cache", "HIT");
         return res.json(hit);
       }

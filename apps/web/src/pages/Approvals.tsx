@@ -3,7 +3,7 @@ import { CheckCircle2, ClipboardCheck, Layers, Search, User, XCircle } from "luc
 import { useMemo, useState } from "react";
 import { MobileFilters } from "../components/filters";
 import { EmptyState } from "../components/register";
-import { PageHeader, Pager, Stat, StatGrid, Tabs, useQueryState } from "../components/ui";
+import { PageHeader, Pager, Stat, StatGrid, useQueryState } from "../components/ui";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { usePager } from "../lib/pager";
@@ -51,16 +51,6 @@ export function Approvals() {
         <Stat icon={Layers} label="Request types" value={kinds} chart="spark" series={Object.values(data.reduce<Record<string, number>>((acc, a) => { acc[a.type] = (acc[a.type] || 0) + 1; return acc; }, {}))} to="/approvals?tab=ALL" />
         <Stat icon={User} label="My pending" value={mine} chart="ring" max={pending || 1} hint={user?.name} to="/approvals?tab=PENDING" />
       </StatGrid>
-      <Tabs
-        value={tab}
-        onChange={setTab}
-        items={[
-          { id: "PENDING", label: "Pending", count: pending },
-          { id: "APPROVED", label: "Approved", count: approved },
-          { id: "REJECTED", label: "Rejected", count: rejected },
-          { id: "ALL", label: "All", count: data.length },
-        ]}
-      />
       <section className="suite-panel module-list-suite overflow-hidden">
         <div className="module-list-toolbar">
           <label className="module-search-field">

@@ -249,8 +249,108 @@ directoryRouter.delete("/customers/:id", moduleAccess("customers", "sales"), asy
   res.json({ ok: true });
 });
 
+directoryRouter.get("/vendors/dashboard", moduleAccess("vendors", "procurement", "finance"), async (_req, res) => {
+  const vendors = await prisma.vendor.findMany();
+  const openPOs = await prisma.purchaseOrder.count({
+    where: { status: { in: ["ORDERED", "PARTIAL"] } },
+  });
+  const bills = await prisma.vendorBill.findMany();
+  const apOpen = Math.round(bills.reduce((s, b) => s + Math.max(0, b.gross - b.paid), 0) * 100) / 100;
+  const openBills = bills.filter((b) => b.gross - b.paid > 0.01).length;
+  const oem = vendors.filter((v) => v.oem).length;
+  const avgLead = vendors.length
+    ? Math.round(vendors.reduce((s, v) => s + (v.leadDays || 0), 0) / vendors.length)
+    : 0;
+  res.json({
+    total: vendors.length,
+    oem,
+    aftermarket: vendors.length - oem,
+    avgLead,
+    openPOs,
+    apOpen,
+    openBills,
+  });
+});
+
 directoryRouter.get("/vendors", moduleAccess("vendors", "procurement"), async (_req, res) => {
-  res.json(await prisma.vendor.findMany({ orderBy: { name: "asc" } }));
+  const vendors = await prisma.vendor.findMany({ orderBy: { name: "asc" } });
+  const bills = await prisma.vendorBill.findMany({ select: { vendorId: true, gross: true, paid: true } });
+  const openPo = await prisma.purchaseOrder.groupBy({
+    by: ["vendorId"],
+    where: { status: { in: ["ORDERED", "PARTIAL"] } },
+    _count: { _all: true },
+  });
+  const poMap = Object.fromEntries(openPo.map((r) => [r.vendorId, r._count._all]));
+  const apMap: Record<string, number> = {};
+  for (const b of bills) {
+    apMap[b.vendorId] = (apMap[b.vendorId] || 0) + Math.max(0, b.gross - b.paid);
+  }
+  res.json(
+    vendors.map((v) => ({
+      ...v,
+      openPOs: poMap[v.id] || 0,
+      apBalance: Math.round((apMap[v.id] || 0) * 100) / 100,
+    })),
+  );
+});
+
+directoryRouter.get("/vendors/:id", moduleAccess("vendors", "procurement", "finance"), async (req, res) => {
+  const v = await prisma.vendor.findUnique({
+    where: { id: req.params.id },
+    include: {
+      purchases: {
+        orderBy: { createdAt: "desc" },
+        take: 25,
+        include: { lines: true, receipts: { include: { lines: true } } },
+      },
+      bills: {
+        orderBy: { createdAt: "desc" },
+        include: { payments: true, purchase: { select: { number: true } } },
+      },
+    },
+  });
+  if (!v) return res.status(404).json({ error: "Vendor not found" });
+  const completed = v.purchases.filter((p) => p.status === "RECEIVED" || p.status === "PARTIAL");
+  let leadSum = 0;
+  let leadCount = 0;
+  for (const po of completed) {
+    const firstReceipt = po.receipts.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0];
+    if (firstReceipt) {
+      leadSum += Math.max(0, Math.floor((firstReceipt.createdAt.getTime() - po.createdAt.getTime()) / 86400000));
+      leadCount += 1;
+    }
+  }
+  const apBalance = Math.round(v.bills.reduce((s, b) => s + Math.max(0, b.gross - b.paid), 0) * 100) / 100;
+  const totalSpend = Math.round(v.bills.reduce((s, b) => s + b.gross, 0) * 100) / 100;
+  const openPOs = v.purchases.filter((p) => ["ORDERED", "PARTIAL"].includes(p.status)).length;
+  res.json({
+    ...v,
+    stats: {
+      orders: v.purchases.length,
+      openPOs,
+      apBalance,
+      totalSpend,
+      avgLeadDays: leadCount ? Math.round(leadSum / leadCount) : null,
+    },
+    bills: v.bills.map((b) => ({
+      id: b.id,
+      number: b.number,
+      status: b.status,
+      gross: b.gross,
+      paid: b.paid,
+      balance: Math.round(Math.max(0, b.gross - b.paid) * 100) / 100,
+      createdAt: b.createdAt,
+      purchaseNumber: b.purchase?.number || null,
+      payments: b.payments,
+    })),
+    purchases: v.purchases.map((p) => ({
+      id: p.id,
+      number: p.number,
+      status: p.status,
+      createdAt: p.createdAt,
+      lineCount: p.lines.length,
+    })),
+  });
 });
 
 directoryRouter.post("/vendors", moduleAccess("vendors", "procurement"), async (req, res) => {
@@ -264,6 +364,22 @@ directoryRouter.post("/vendors", moduleAccess("vendors", "procurement"), async (
   });
   await audit(req, { entity: "Vendor", entityId: v.id, action: "CREATE", newValue: v });
   res.status(201).json(v);
+});
+
+directoryRouter.patch("/vendors/:id", moduleAccess("vendors", "procurement"), async (req, res) => {
+  const existing = await prisma.vendor.findUnique({ where: { id: req.params.id } });
+  if (!existing) return res.status(404).json({ error: "Vendor not found" });
+  const v = await prisma.vendor.update({
+    where: { id: existing.id },
+    data: {
+      name: req.body.name != null ? String(req.body.name) : undefined,
+      phone: req.body.phone != null ? String(req.body.phone) : undefined,
+      leadDays: req.body.leadDays != null ? Number(req.body.leadDays) : undefined,
+      oem: req.body.oem != null ? Boolean(req.body.oem) : undefined,
+    },
+  });
+  await audit(req, { entity: "Vendor", entityId: v.id, action: "UPDATE", oldValue: existing, newValue: v });
+  res.json(v);
 });
 
 directoryRouter.get("/users", moduleAccess("hr", "staff"), async (_req, res) => {

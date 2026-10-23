@@ -6,15 +6,23 @@ import {
   TrendingDown,
   TrendingUp,
   Wallet,
+  Truck,
+  Users,
+  ShieldCheck,
+  BarChart3,
 } from "lucide-react";
-import { Link } from "react-router-dom";
-import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { DonutChart } from "../components/DonutChart";
+import { lazy, Suspense } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { PageBusy, Stat, StatGrid } from "../components/ui";
 import { api, money } from "../lib/api";
 import { canModule } from "../lib/access";
 import { useAuth } from "../lib/auth";
-import { useState } from "react";
+import { usePwaLayout } from "../lib/mobile";
+import { resolveMobileRole } from "../lib/mobile-shell";
+import { financeNavHref } from "./finance/FinanceSidebar";
+import { useMemo, useState } from "react";
+
+const DashboardDesktopCharts = lazy(() => import("./DashboardDesktopCharts"));
 
 type Dash = {
   tiles: Record<string, number>;
@@ -63,6 +71,8 @@ function Pager({ page, pages, total, setPage }: { page: number; pages: number; t
 
 export function Dashboard() {
   const { user } = useAuth();
+  const nav = useNavigate();
+  const showDesktopCharts = !usePwaLayout();
   const finance = canModule(user, "finance") ? "/finance" : canModule(user, "sales") ? "/sales" : "/";
   const sales = canModule(user, "sales") ? "/sales" : finance;
   const stock = canModule(user, "inventory") ? "/inventory" : "/";
@@ -97,6 +107,31 @@ export function Dashboard() {
   const arTo = overdueAlert?.to || (finance === "/" ? "/" : `${finance}?section=ar`);
   const tasks = data?.tasks || [];
 
+  const todayItems = alerts.slice(0, 4);
+  const mobileRole = resolveMobileRole(user);
+  const quickActions = useMemo(() => {
+    type Q = { label: string; icon: typeof Banknote; to: string };
+    const out: Q[] = [];
+    switch (mobileRole) {
+      case "finance":
+        out.push({ label: "Collect", icon: Banknote, to: financeNavHref("ar") });
+        break;
+      case "warehouse":
+        out.push({ label: "Dispatch", icon: Truck, to: "/dispatch" });
+        break;
+      case "sales":
+        if (canModule(user, "customers")) out.push({ label: "Customers", icon: Users, to: "/customers" });
+        break;
+      case "admin":
+        if (canModule(user, "approvals")) out.push({ label: "Approvals", icon: ShieldCheck, to: "/approvals" });
+        if (canModule(user, "reports")) out.push({ label: "Reports", icon: BarChart3, to: "/reports" });
+        break;
+      default:
+        break;
+    }
+    return out;
+  }, [mobileRole, user]);
+
   if (isLoading && !data) return <PageBusy label="Loading dashboard…" />;
 
   return (
@@ -126,95 +161,95 @@ export function Dashboard() {
         />
       </StatGrid>
 
-      <section className="suite-panel">
-          <header className="suite-panel-h">
-            <div>
-              <h2>Revenue overview</h2>
-            </div>
-            <span className="suite-chip">YTD</span>
-          </header>
-          <div className="h-56 px-2 pb-3">
-            {(data?.yearTrend || []).some((r) => r.thisYear || r.lastYear) ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={data?.yearTrend || []} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid stroke="#eef2f7" vertical={false} />
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
-                  <Tooltip formatter={(v) => money(Number(v))} />
-                  <Legend iconType="plainline" wrapperStyle={{ fontSize: 11 }} />
-                  <Line type="monotone" dataKey="thisYear" name="This year" stroke="#3b82f6" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="lastYear" name="Last year" stroke="#94a3b8" strokeWidth={2} strokeDasharray="4 4" dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <p className="grid h-full place-items-center text-sm text-slate-400">No sales this year yet.</p>
-            )}
-          </div>
-      </section>
-
-      <div className="grid gap-3 lg:grid-cols-12">
-        <section className="suite-panel lg:col-span-5">
-          <header className="suite-panel-h">
-            <div>
-              <h2>Sales mix by category</h2>
-            </div>
-            <span className="suite-chip">Live</span>
-          </header>
-          <div className="donut-panel px-2 pb-3">
-            <DonutChart
-              data={data?.salesMix || []}
-              showLegend
-              colors={["#22c55e", "#3b82f6", "#f59e0b", "#a855f7", "#06b6d4", "#ef4444"]}
-              empty="No sales this month."
-            />
-          </div>
-        </section>
-
-        <section className="suite-panel lg:col-span-7">
-          <header className="suite-panel-h">
-            <div>
-              <h2>Cash flow trend</h2>
-            </div>
-            <span className="suite-chip">14 days</span>
-          </header>
-          <div className="h-52 px-2 pb-3">
-            {dayTrend.some((d) => d.revenue || d.expenses) ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={dayTrend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid stroke="#eef2f7" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
-                  <Tooltip formatter={(v) => money(Number(v))} />
-                  <Legend iconType="plainline" wrapperStyle={{ fontSize: 11 }} />
-                  <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#22c55e" strokeWidth={2.5} dot={false} />
-                  <Line type="monotone" dataKey="expenses" name="Expenses" stroke="#ef4444" strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <p className="grid h-full place-items-center text-sm text-slate-400">No trend data yet.</p>
-            )}
-          </div>
-        </section>
-      </div>
-
-      {tasks.length > 0 && (
-        <section className="suite-panel">
-          <header className="suite-panel-h">
-            <h2>Tasks &amp; alerts</h2>
-          </header>
-          <ul className="grid gap-2 px-4 pb-4 sm:grid-cols-2 lg:grid-cols-3">
-            {tasks.map((task) => (
-              <li key={task.id}>
-                <Link className={`dash-task-link ${task.done ? "dash-task-done" : ""}`} to={task.to}>
-                  {task.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
+      {quickActions.length > 0 && (
+        <section className="mobile-shell-only mobile-quick-actions">
+          {quickActions.map((a) => (
+            <button key={a.to} type="button" className="mobile-quick-btn" onClick={() => nav(a.to)}>
+              <a.icon size={20} />
+              <span>{a.label}</span>
+            </button>
+          ))}
         </section>
       )}
 
-      <div className="grid gap-3 xl:grid-cols-2">
+      {(todayItems.length > 0 || tasks.length > 0) && (
+        <section className="mobile-shell-only mobile-today-strip">
+          <h2 className="mobile-today-title">Alerts</h2>
+          <div className="mobile-today-scroll">
+            {todayItems.map((a) => (
+              <Link key={a.id} to={a.to} className={`mobile-today-pill mobile-today-${a.level}`}>
+                {a.label}
+              </Link>
+            ))}
+            {tasks.filter((t) => !t.done).slice(0, 3).map((task) => (
+              <Link key={task.id} to={task.to} className="mobile-today-pill mobile-today-info">
+                {task.label}
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {showDesktopCharts && (
+        <Suspense fallback={null}>
+          <DashboardDesktopCharts
+            yearTrend={data?.yearTrend || []}
+            dayTrend={dayTrend}
+            salesMix={data?.salesMix || []}
+            tasks={tasks}
+          />
+        </Suspense>
+      )}
+
+      <section className="mobile-shell-only suite-panel">
+        <header className="suite-panel-h">
+          <h2>Recent invoices</h2>
+          {canModule(user, "finance") && <Link to="/finance?section=overview" className="suite-panel-link">All</Link>}
+        </header>
+        <ul className="mobile-dash-list">
+          {invoices.length === 0 && <li className="mobile-dash-empty">No invoices yet.</li>}
+          {invoices.slice(0, 6).map((inv) => (
+            <li key={inv.id}>
+              <Link to={`/finance?section=overview&q=${encodeURIComponent(inv.number)}`} className="mobile-dash-row">
+                <span className="mobile-dash-row-main">
+                  <span className="font-medium text-slate-800 dark:text-slate-100">{inv.number}</span>
+                  <span className="text-xs text-slate-400">{inv.customer}</span>
+                </span>
+                <span className="text-right">
+                  <span className="block text-sm font-semibold tabular-nums">{money(inv.total)}</span>
+                  <StatusPill status={inv.status} />
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="mobile-shell-only suite-panel">
+        <header className="suite-panel-h">
+          <h2>Stock alerts</h2>
+          {canModule(user, "inventory") && <Link to={invTo} className="suite-panel-link">All</Link>}
+        </header>
+        <ul className="mobile-dash-list">
+          {stockRows.length === 0 && <li className="mobile-dash-empty">No products yet.</li>}
+          {stockRows.slice(0, 6).map((p) => (
+            <li key={p.id}>
+              <Link to={`/inventory?section=products&q=${encodeURIComponent(p.sku)}`} className="mobile-dash-row">
+                <span className="mobile-dash-row-main">
+                  <span className="font-medium text-slate-800 dark:text-slate-100">{p.name}</span>
+                  <span className="text-xs text-slate-400">{p.sku}</span>
+                </span>
+                <span className="text-right">
+                  <span className="block text-sm font-semibold tabular-nums">{p.qtyOnHand} on hand</span>
+                  <StockPill status={p.status} />
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <div className="hidden gap-3 xl:grid xl:grid-cols-2">
         <section className="suite-panel suite-panel-table overflow-hidden">
           <header className="suite-panel-h">
             <div>
@@ -250,7 +285,7 @@ export function Dashboard() {
         <section className="suite-panel suite-panel-table overflow-hidden">
           <header className="suite-panel-h">
             <div>
-              <h2>Inventory overview</h2>
+              <h2>Inventory snapshot</h2>
             </div>
             {canModule(user, "inventory") && <Link to="/inventory?section=products" className="suite-panel-link">View all</Link>}
           </header>

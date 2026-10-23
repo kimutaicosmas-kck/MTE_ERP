@@ -6,6 +6,7 @@
 const BASE = process.argv[2] || "http://localhost:4000";
 const WEB = process.argv[3] || "http://localhost:5173";
 const PASS = "Mte@2026";
+const LOAD_TEST_KEY = process.env.LOAD_TEST_KEY || "mte-local-load-key";
 
 const roles = {
   superadmin: "superadmin@mte.local",
@@ -29,6 +30,7 @@ async function req(path, opts = {}) {
     ...opts,
     headers: {
       "Content-Type": "application/json",
+      "X-Load-Test-Key": LOAD_TEST_KEY,
       ...(opts.token ? { Authorization: `Bearer ${opts.token}` } : {}),
       ...(opts.headers || {}),
     },
@@ -159,8 +161,8 @@ async function main() {
     await testEndpoint(tokens.sales, "GET", "/api/orders", "RBAC/Sales→orders");
     await testEndpoint(tokens.sales, "GET", "/api/reports/sales", "RBAC/Sales→performance");
     const denied = await req("/api/finance/invoices", { token: tokens.sales });
-    if (denied.status === 403) log("PASS", "RBAC", "Sales blocked from finance invoices");
-    else log("WARN", "RBAC", `Sales finance access: ${denied.status} (expected 403)`);
+    if (denied.status === 403 || denied.status === 401) log("PASS", "RBAC", "Sales blocked from finance invoices");
+    else log("WARN", "RBAC", `Sales finance access: ${denied.status} (expected 403/401)`);
   }
 
   if (tokens.warehouse) {

@@ -4,10 +4,9 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { MobileFilters } from "../components/filters";
 import { FilterChips, Register } from "../components/register";
-import { EmptyRow, ExportButtons, PageHeader, Pager, RowPdf, Stat, StatGrid, Tabs, useQueryState } from "../components/ui";
+import { EmptyRow, ExportButtons, PageHeader, Pager, RowPdf, Stat, StatGrid, useQueryState } from "../components/ui";
 import { api, money } from "../lib/api";
 import { usePager } from "../lib/pager";
-import { ModuleNav } from "../components/ModuleNav";
 import { ANALYTICS_HUBS } from "../lib/module-report-links";
 import {
   BiAnalyticsHub,
@@ -129,8 +128,6 @@ export function Reports() {
         <Stat icon={Gauge} label="KPI dashboards" value="→" hint="Live metrics" to="/reports?hub=kpi" />
         <Stat icon={CalendarClock} label="Scheduled" value="→" hint="Automated reports" to="/reports?hub=scheduled" />
       </StatGrid>
-      <ModuleNav items={[...ANALYTICS_HUBS]} value={hub} onChange={setHub} />
-
       {hub === "executive" && <ExecutiveReportsHub />}
       {hub === "kpi" && <KpiDashboardsHub />}
       {hub === "scheduled" && <ScheduledReportsHub />}
@@ -141,17 +138,6 @@ export function Reports() {
 
       {hub === "cross" && (
       <>
-      <Tabs
-        value={tab}
-        onChange={setTab}
-        items={[
-          { id: "stock", label: "Stock", count: inv.data?.[stockView]?.length },
-          { id: "buy", label: "What to buy", count: buy.data?.summary?.skus },
-          { id: "customers", label: "Customers", count: stats.customers },
-          { id: "team", label: "Sales team", count: teamRows.length },
-          { id: "vendors", label: "Vendors", count: vendors.data?.rows?.length },
-        ]}
-      />
       {tab === "stock" && (
         <FilterChips
           value={stockView}

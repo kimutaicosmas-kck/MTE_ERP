@@ -545,7 +545,19 @@ ordersRouter.post("/:id/status", async (req, res) => {
       return res.status(403).json({ error: "Pick, pack, dispatch, and delivery are done in Dispatch" });
     }
   }
-  if (order.status !== next && isDispatchStep(order.status) && isDispatchStep(next) && !canDispatchTransition(order.status, next)) {
+  const expressReadyToShip =
+    next === "PICKED" &&
+    ["CONFIRMED", "PICKING"].includes(order.status) &&
+    linesFullyPicked(order) &&
+    linesFullyPacked(order) &&
+    order.qcPassed === true;
+  if (
+    order.status !== next &&
+    isDispatchStep(order.status) &&
+    isDispatchStep(next) &&
+    !expressReadyToShip &&
+    !canDispatchTransition(order.status, next)
+  ) {
     return res.status(400).json({ error: `Cannot move from ${order.status} to ${next}` });
   }
   if (next === "PACKING" && !linesFullyPicked(order)) {
@@ -556,6 +568,9 @@ ordersRouter.post("/:id/status", async (req, res) => {
   }
   if (next === "PICKED" && order.status === "PICKING" && !linesFullyPicked(order)) {
     return res.status(400).json({ error: "Pick all items first" });
+  }
+  if (next === "PICKED" && ["CONFIRMED", "PICKING"].includes(order.status) && !expressReadyToShip) {
+    return res.status(400).json({ error: "Pick all items, then use Mark ready to ship" });
   }
   if (next === "DISPATCHED") {
     for (const line of order.lines) {

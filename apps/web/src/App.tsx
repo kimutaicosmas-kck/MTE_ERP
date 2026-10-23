@@ -19,11 +19,13 @@ import { Reports } from "./pages/Reports";
 import { Dispatch } from "./pages/Dispatch";
 import { DispatchJob } from "./pages/DispatchJob";
 import { Vendors } from "./pages/Vendors";
+import { VendorDetail } from "./pages/VendorDetail";
 import { OrderPrint } from "./pages/OrderPrint";
 import { Procurement } from "./pages/Procurement";
 import { PurchaseNew } from "./pages/PurchaseNew";
 import { PurchaseDetail } from "./pages/PurchaseDetail";
 import { Settings } from "./pages/Settings";
+import { More } from "./pages/More";
 import { HR } from "./pages/HR";
 import { Docs } from "./pages/Docs";
 import { SharedDoc } from "./pages/SharedDoc";
@@ -92,13 +94,14 @@ export default function App() {
         <Route path="dispatch" element={<ModuleRoute module="dispatch"><Dispatch /></ModuleRoute>} />
         <Route path="dispatch/:id" element={<ModuleRoute module="dispatch"><DispatchJob /></ModuleRoute>} />
         <Route path="vendors" element={<ModuleRoute module="vendors"><Vendors /></ModuleRoute>} />
+        <Route path="vendors/:id" element={<ModuleRoute module={["vendors", "procurement", "finance"]}><VendorDetail /></ModuleRoute>} />
         <Route path="staff" element={<Navigate to="/hr" replace />} />
         <Route path="hr" element={<HR />} />
         <Route path="payroll" element={<Navigate to="/hr" replace />} />
         <Route path="settings" element={<Settings />} />
         <Route path="docs" element={<ModuleRoute module="settings"><Docs /></ModuleRoute>} />
-        <Route path="profile" element={<Navigate to="/settings" replace />} />
-        <Route path="more" element={<Navigate to="/settings" replace />} />
+        <Route path="profile" element={<Navigate to="/settings?tab=profile" replace />} />
+        <Route path="more" element={<More />} />
       </Route>
       <Route
         path="/sales/:id/print/:kind"

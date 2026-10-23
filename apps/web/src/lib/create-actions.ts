@@ -7,3 +7,5 @@ export const CREATE_ACTIONS = [
   { label: "New purchase", to: "/procurement/new", module: "procurement" },
   { label: "New employee", to: "/hr?new=1", module: "hr" },
 ] as const;
+
+export type CreateAction = (typeof CREATE_ACTIONS)[number];

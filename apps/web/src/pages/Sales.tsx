@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BarChart3, Check, CheckCircle2, ClipboardList, Plus, Search, TrendingUp, Truck, Wallet } from "lucide-react";
+import { BarChart3, Check, CheckCircle2, ClipboardList, Plus, Search, TrendingUp, Wallet, XCircle } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { BranchFilter } from "../components/BranchFilter";
@@ -15,17 +15,15 @@ import {
   Pager,
   Stat,
   StatGrid,
-  Tabs,
   seriesByDay,
-  seriesByMonth,
   useQueryState,
 } from "../components/ui";
 import { api, money } from "../lib/api";
 import { canModule } from "../lib/access";
 import { useAuth } from "../lib/auth";
 import { usePager } from "../lib/pager";
-import { salesStatusLabel } from "../lib/sales-status";
-import { ModuleReportsPanel } from "../components/ModuleReportsPanel";
+import { canCancelOrder, canConfirmOrder, salesStatusLabel } from "../lib/sales-status";
+import { MobileModuleChips } from "../components/MobileModuleChips";
 
 type Order = {
   id: string;
@@ -46,14 +44,15 @@ export function Sales() {
   const qc = useQueryClient();
   const sales = user?.role === "SALES";
   const [tabRaw, setTabRaw] = useQueryState("tab", "orders");
-  const tab = tabRaw === "quotes" ? "quotes" : tabRaw === "reports" ? "reports" : "orders";
-  const setTab = (next: "orders" | "quotes" | "reports") => setTabRaw(next);
+  const tab = tabRaw === "quotes" ? "quotes" : "orders";
+  const setTab = (next: "orders" | "quotes") => setTabRaw(next);
   const [q, setQ] = useState("");
   const [status, setStatus] = useQueryState("status", "");
   const [person, setPerson] = useState("");
   const [when, setWhen] = useQueryState("when", "month");
   const [branch, setBranch] = useQueryState("branch", "");
   const [accept, setAccept] = useState<Order | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<Order | null>(null);
 
   const orders = useQuery({
     queryKey: ["orders", branch],
@@ -67,6 +66,19 @@ export function Sales() {
       qc.invalidateQueries({ queryKey: ["invoices"] });
       setAccept(null);
       nav(`/sales/${o.id}`);
+    },
+  });
+  const cancelOrder = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
+      api(`/api/orders/${id}/status`, {
+        method: "POST",
+        body: JSON.stringify({ status: "CANCELLED", reason: reason || "Cancelled from Sales" }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["orders"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      setCancelTarget(null);
     },
   });
 
@@ -99,19 +111,25 @@ export function Sales() {
     });
     const completed = list.filter((o) => o.status === "DELIVERED" || o.status === "PAID");
     const completedOnly = (items: Order[]) => items.filter((o) => o.status === "DELIVERED" || o.status === "PAID");
-    const inDispatch = list.filter((o) => ["PICKING", "PICKED", "DISPATCHED"].includes(o.status)).length;
+    const active = list.filter((o) => !["DELIVERED", "PAID", "CANCELLED"].includes(o.status)).length;
+    const cancelled = (orders.data || []).filter((o) => o.status === "CANCELLED").length;
+    const monthRevenue = sum(thisMonth);
+    const lastMonthRevenue = sum(lastMonth);
+    const outstanding = list.reduce((s, o) => s + (o.totals?.balance || 0), 0);
     return {
       today: sum(today),
       yesterday: sum(yesterday),
-      month: sum(thisMonth),
-      lastMonth: sum(lastMonth),
       completed: completed.length,
       quotes: quotes.length,
-      allTime: sum(list),
+      active,
       total: list.length,
-      inDispatch,
+      monthRevenue,
+      lastMonthRevenue,
+      monthOrderCount: thisMonth.length,
+      cancelled,
+      outstanding,
       dayRevenue: seriesByDay(list, (o) => o.createdAt, (o) => o.totals.gross, 14),
-      monthRevenue: seriesByMonth(list, (o) => o.createdAt, (o) => o.totals.gross, 6),
+      monthSeries: seriesByDay(thisMonth, (o) => o.createdAt, (o) => o.totals.gross, 14),
       quoteTrend: seriesByDay(quotes, (o) => o.createdAt, () => 1, 14),
       completedTrend: seriesByDay(completedOnly(list), (o) => o.createdAt, () => 1, 14),
     };
@@ -127,10 +145,16 @@ export function Sales() {
       if (tab === "quotes" ? o.status !== "DRAFT" : o.status === "DRAFT") return false;
       const hay = `${o.number} ${o.customer.name} ${o.salesperson?.name || ""}`.toLowerCase();
       if (q && !hay.includes(q.toLowerCase())) return false;
-      if (tab === "orders") {
-        if (status === "completed" && !["DELIVERED", "PAID"].includes(o.status)) return false;
-        else if (status === "dispatch" && !["PICKING", "PICKED", "DISPATCHED"].includes(o.status)) return false;
-        else if (status && !["completed", "dispatch"].includes(status) && o.status !== status) return false;
+      if (tab === "orders" && status) {
+        const bucket =
+          status === "completed" ? "done" :
+          status === "dispatch" ? "warehouse" :
+          status;
+        if (bucket === "open" && o.status !== "CONFIRMED") return false;
+        if (bucket === "warehouse" && !["PICKING", "PACKING", "PICKED", "DISPATCHED", "IN_TRANSIT"].includes(o.status)) return false;
+        if (bucket === "done" && !["DELIVERED", "PAID"].includes(o.status)) return false;
+        if (bucket === "CANCELLED" && o.status !== "CANCELLED") return false;
+        if (bucket === "CONFIRMED" && o.status !== "CONFIRMED") return false;
       }
       if (person && o.salesperson?.name !== person) return false;
       if (!inDateRange(o.createdAt, when)) return false;
@@ -166,9 +190,9 @@ export function Sales() {
       onChange: (v: string) => setStatus(v === "all" ? "" : v),
       options: [
         { value: "all", label: "All" },
-        { value: "CONFIRMED", label: "Confirmed" },
-        { value: "dispatch", label: "In dispatch" },
-        { value: "completed", label: "Completed" },
+        { value: "open", label: "Confirmed (new)" },
+        { value: "warehouse", label: "In warehouse / delivery" },
+        { value: "done", label: "Completed" },
         { value: "CANCELLED", label: "Cancelled" },
       ],
     }] : []),
@@ -209,22 +233,22 @@ export function Sales() {
         />
         <Stat
           icon={TrendingUp}
-          label="This month"
-          value={money(stats.month)}
-          delta={pctChange(stats.month, stats.lastMonth)}
-          series={stats.monthRevenue}
-          chart="area"
-          hint="vs last month"
+          label="This month sales"
+          value={money(stats.monthRevenue)}
+          delta={pctChange(stats.monthRevenue, stats.lastMonthRevenue)}
+          series={stats.monthSeries}
+          chart="bars"
+          hint={stats.monthOrderCount ? `${stats.monthOrderCount} orders this month` : "No sales yet this month"}
           to="/sales?when=month"
         />
         <Stat
-          icon={ClipboardList}
-          label="Open quotes"
-          value={stats.quotes}
-          series={stats.quoteTrend}
+          icon={CheckCircle2}
+          label="Active orders"
+          value={stats.active}
+          series={stats.completedTrend}
           chart="bars"
-          hint={stats.quotes ? `${stats.quotes} awaiting confirmation` : "No open quotes"}
-          to="/sales?tab=quotes"
+          hint="In progress"
+          to="/sales?tab=orders"
         />
         <Stat
           icon={CheckCircle2}
@@ -233,42 +257,36 @@ export function Sales() {
           series={stats.completedTrend}
           chart="spark"
           share={stats.total ? stats.completed / stats.total : 0}
-          hint={`${stats.total ? Math.round((stats.completed / stats.total) * 100) : 0}% of active orders`}
-          to="/sales?status=completed"
+          hint="Delivered or paid"
+          to="/sales?status=done"
         />
         <Stat
-          icon={Truck}
-          label="In dispatch"
-          value={stats.inDispatch}
-          series={stats.completedTrend}
-          chart="bars"
-          hint="Warehouse pipeline"
-          to="/sales?status=dispatch"
-        />
-        <Stat
-          icon={BarChart3}
-          label="All-time revenue"
-          value={money(stats.allTime)}
-          series={stats.monthRevenue}
+          icon={ClipboardList}
+          label="Open quotes"
+          value={stats.quotes}
+          series={stats.quoteTrend}
           chart="area"
-          hint={`${stats.total} active orders`}
-          to="/sales?when=all"
+          hint={stats.quotes ? `${stats.quotes} open` : "None open"}
+          to="/sales?tab=quotes"
+        />
+        <Stat
+          icon={XCircle}
+          label="Cancelled"
+          value={stats.cancelled}
+          chart="ring"
+          max={Math.max(stats.total + stats.cancelled, 1)}
+          hint={stats.outstanding > 0 ? `${money(stats.outstanding)} open AR` : "No open balance"}
+          to="/sales?status=CANCELLED"
         />
       </StatGrid>
 
-      <Tabs
-        value={tab}
-        onChange={setTab}
-        items={[
-          { id: "orders", label: "Sales orders", count: orderCount },
-          { id: "quotes", label: "Quotations", count: quoteCount },
-          { id: "reports", label: "Sales reports" },
+      <MobileModuleChips
+        chips={[
+          { label: "Orders", to: "/sales?tab=orders", count: orderCount },
+          { label: "Quotes", to: "/sales?tab=quotes", count: quoteCount },
         ]}
       />
 
-      {tab === "reports" && <ModuleReportsPanel moduleId="sales" />}
-
-      {tab !== "reports" && (
       <>
       <section className="suite-panel suite-panel-table module-list-suite overflow-hidden">
         <div className="module-list-toolbar">
@@ -289,10 +307,10 @@ export function Sales() {
                 <BranchFilter value={branch} onChange={setBranch} className="module-select" />
                 {tab === "orders" && (
                   <select className="module-select" value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">
-                    <option value="">All statuses</option>
-                    <option value="CONFIRMED">Confirmed</option>
-                    <option value="dispatch">In dispatch</option>
-                    <option value="completed">Completed</option>
+                    <option value="">All orders</option>
+                    <option value="open">Confirmed (new)</option>
+                    <option value="warehouse">In warehouse / delivery</option>
+                    <option value="done">Completed</option>
                     <option value="CANCELLED">Cancelled</option>
                   </select>
                 )}
@@ -333,9 +351,14 @@ export function Sales() {
                 ])}
               />
               {canModule(user, "sales") && (
-                <Link to="/sales/performance" className="btn-ghost module-btn-sm">
-                  <BarChart3 size={16} /> Performance
-                </Link>
+                <>
+                  <Link to="/reports?module=sales" className="btn-ghost module-btn-sm">
+                    <BarChart3 size={16} /> Reports
+                  </Link>
+                  <Link to="/sales/performance" className="btn-ghost module-btn-sm">
+                    Performance
+                  </Link>
+                </>
               )}
               <Link to="/sales/new" className="btn-gold module-btn-sm">
                 <Plus size={16} /> {tab === "quotes" ? "New quote" : "New order"}
@@ -344,7 +367,9 @@ export function Sales() {
           </div>
         </div>
 
-        {convert.error && <p className="px-4 pb-2 text-sm text-red-600">{(convert.error as Error).message}</p>}
+        {(convert.error || cancelOrder.error) && (
+          <p className="px-4 pb-2 text-sm text-red-600">{((convert.error || cancelOrder.error) as Error).message}</p>
+        )}
 
       <Register
         rows={listing.sorted}
@@ -368,8 +393,15 @@ export function Sales() {
           ],
           actions: (o) => (
             <div className="grid gap-2">
-              {tab === "quotes" && (
-                <button type="button" className="btn-success w-full" onClick={() => setAccept(o)}>Confirm sales order</button>
+              {canConfirmOrder(o.status) && (
+                <button type="button" className="btn-success w-full" onClick={() => setAccept(o)} disabled={convert.isPending}>
+                  Confirm sales order
+                </button>
+              )}
+              {canCancelOrder(o.status) && (
+                <button type="button" className="btn-ghost w-full text-red-700" onClick={() => setCancelTarget(o)} disabled={cancelOrder.isPending}>
+                  Cancel order
+                </button>
               )}
               <OrderDocs orderId={o.id} status={o.status} compact />
               <ShareMenu
@@ -394,7 +426,7 @@ export function Sales() {
                 <th>Date</th>
                 <th className="num">Total</th>
                 <th>Status</th>
-                <th>{tab === "quotes" ? "Actions" : "Documents"}</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -418,14 +450,25 @@ export function Sales() {
                   <td><SaleStatus status={o.status} /></td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <div className="flex flex-wrap items-center gap-2">
-                      {tab === "quotes" && (
+                      {canConfirmOrder(o.status) && (
                         <button
                           type="button"
                           className="btn-success px-3 py-1 text-xs"
                           disabled={convert.isPending}
                           onClick={() => setAccept(o)}
                         >
-                          Confirm sales order
+                          Confirm
+                        </button>
+                      )}
+                      {canCancelOrder(o.status) && (
+                        <button
+                          type="button"
+                          className="btn-ghost px-2 py-1 text-xs text-red-700"
+                          disabled={cancelOrder.isPending}
+                          onClick={() => setCancelTarget(o)}
+                        >
+                          <XCircle size={14} className="inline mr-0.5" aria-hidden />
+                          Cancel
                         </button>
                       )}
                       <OrderDocs orderId={o.id} status={o.status} compact />
@@ -446,7 +489,6 @@ export function Sales() {
       </Register>
       </section>
       </>
-      )}
 
       {accept && (
         <ConfirmDialog
@@ -456,6 +498,21 @@ export function Sales() {
           busy={convert.isPending}
           onConfirm={() => convert.mutate(accept.id)}
           onClose={() => setAccept(null)}
+        />
+      )}
+      {cancelTarget && (
+        <ConfirmDialog
+          title="Cancel sales order"
+          body={
+            cancelTarget.status === "DRAFT"
+              ? `${cancelTarget.number} · ${cancelTarget.customer.name}. This quotation will be cancelled.`
+              : `${cancelTarget.number} · ${cancelTarget.customer.name}. Reserved stock is released. Confirmed orders may need manager approval.`
+          }
+          confirmLabel="Cancel order"
+          danger
+          busy={cancelOrder.isPending}
+          onConfirm={() => cancelOrder.mutate({ id: cancelTarget.id })}
+          onClose={() => setCancelTarget(null)}
         />
       )}
     </div>

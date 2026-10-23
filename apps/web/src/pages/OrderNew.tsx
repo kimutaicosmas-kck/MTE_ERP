@@ -128,12 +128,7 @@ export function OrderNew() {
               checked={saveAsQuote}
               onChange={(e) => setSaveAsQuote(e.target.checked)}
             />
-            <span>
-              <span className="block font-medium">Save as quote first</span>
-              <span className="block text-sm text-stone-500">
-                Send a quotation to the customer. Confirm it as a sales order when they accept.
-              </span>
-            </span>
+            <span className="font-medium">Save as quote first</span>
           </label>
 
           <div className="card grid gap-3 sm:grid-cols-2">

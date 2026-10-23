@@ -11,7 +11,7 @@ export function tokenFromRequest(req: Request) {
   return header || query || "";
 }
 
-/** Verify JWT and ensure Redis session exists (rehydrate from JWT when TTL lapsed). */
+/** Verify JWT and ensure Redis session exists (sign-out removes session; JWT alone is not enough). */
 export async function authenticateToken(token: string): Promise<TokenUser> {
   const user = verifyToken(token);
   if (!redisReady() || !user.sid) return user;
@@ -19,17 +19,6 @@ export async function authenticateToken(token: string): Promise<TokenUser> {
   const session = await readSession(user.sid);
   if (session.ok) return user;
 
-  const client = getRedis();
-  if (!client) return user;
-
-  const payload = JSON.stringify({
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    role: user.role,
-  });
-  await client.set(`sess:${user.sid}`, payload, "EX", SESSION_TTL);
-  await client.sadd(`user:sess:${user.id}`, user.sid);
-  await client.expire(`user:sess:${user.id}`, SESSION_TTL);
-  return user;
+  // Session was removed (sign-out) or expired — do not recreate from JWT alone.
+  throw new Error("Session expired");
 }

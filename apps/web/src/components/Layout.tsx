@@ -19,8 +19,6 @@ import {
   Settings,
   Contact,
   X,
-  Home,
-  UserRound,
   Download,
   ArrowLeft,
   Search,
@@ -36,6 +34,12 @@ import { useTheme } from "../lib/theme";
 import { usePageTitle } from "../lib/page-title";
 import { NotificationBell } from "./NotificationBell";
 import { AssistantGlobalListener, AssistantProvider } from "./AiAssistant";
+import { SidebarModuleNav } from "./SidebarModuleNav";
+import { MobileFab } from "./MobileFab";
+import { MobileDrawerNav } from "./MobileDrawerNav";
+import { getMobileBottomTabs } from "../lib/mobile-shell";
+import { usePwaLayoutDocumentClass } from "../lib/mobile";
+import { UI_BUILD } from "../lib/build-id";
 
 const links = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, module: "dashboard" },
@@ -57,7 +61,8 @@ function rememberTab(path: string) {
   if (path === "/inventory" || path.startsWith("/inventory/")) sessionStorage.setItem("tab:inventory", "/inventory");
   else if (path === "/sales" || path.startsWith("/sales/")) sessionStorage.setItem("tab:sales", "/sales");
   else if (path === "/reports" || path.startsWith("/reports/")) sessionStorage.setItem("tab:reports", "/reports");
-  else if (path.startsWith("/settings") || path.startsWith("/profile") || path.startsWith("/more")) sessionStorage.setItem("tab:profile", "/settings");
+  else if (path.startsWith("/settings") || path.startsWith("/profile")) sessionStorage.setItem("tab:profile", "/settings");
+  else if (path === "/more") sessionStorage.setItem("tab:more", "/more");
 }
 
 export function Layout() {
@@ -74,6 +79,7 @@ export function Layout() {
   const [install, setInstall] = useState<any>(null);
   const [help, setHelp] = useState(false);
   const [query, setQuery] = useState("");
+  const [mobileSearch, setMobileSearch] = useState(false);
   const pull = useRef({ y: 0, active: false });
   const goRef = useRef<(to: string) => void>(() => undefined);
 
@@ -179,17 +185,25 @@ export function Layout() {
   const hour = new Date().getHours();
   const hello = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const today = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
-  const tabs = useMemo(() => {
-    const items = [
-      { key: "home", to: "/", label: "Home", icon: Home },
-    ];
-    if (canModule(user, "inventory")) items.push({ key: "inventory", to: "/inventory", label: "Inventory", icon: Boxes });
-    if (canModule(user, "sales")) items.push({ key: "sales", to: "/sales", label: "Sales", icon: Trophy });
-    else if (canModule(user, "dispatch")) items.push({ key: "sales", to: "/dispatch", label: "Dispatch", icon: Truck });
-    if (canModule(user, "customers")) items.push({ key: "customers", to: "/customers", label: "Customers", icon: Users });
-    items.push({ key: "profile", to: "/settings", label: "Profile", icon: UserRound });
-    return items;
-  }, [user, location.pathname]);
+  const pwaLayout = usePwaLayoutDocumentClass();
+  const tabs = useMemo(() => getMobileBottomTabs(user), [user]);
+
+  function submitSearch(q: string) {
+    const trimmed = q.trim();
+    if (!trimmed) return;
+    const lower = trimmed.toLowerCase();
+    if (/^cust-\d+/i.test(trimmed) || lower.includes("customer") || /^\+?\d{9,12}$/.test(trimmed.replace(/\s/g, ""))) {
+      nav(`/customers?q=${encodeURIComponent(trimmed)}`);
+    } else if (/^so-|^inv-|^ord-/i.test(trimmed)) {
+      nav(`/sales?q=${encodeURIComponent(trimmed)}`);
+    } else if (canModule(user, "inventory")) {
+      nav(`/inventory?q=${encodeURIComponent(trimmed)}&section=products`);
+    } else {
+      nav(`/customers?q=${encodeURIComponent(trimmed)}`);
+    }
+    setQuery("");
+    setMobileSearch(false);
+  }
 
   goRef.current = (to: string) => nav(to);
 
@@ -234,7 +248,7 @@ export function Layout() {
       <AssistantGlobalListener />
     <div className="min-h-svh bg-paper text-ink dark:bg-night dark:text-slate-100">
       <header
-        className="mobile-topbar sticky top-0 z-30 border-b border-slate-200 bg-white px-1 py-2 dark:border-white/10 dark:bg-[#121a26] lg:hidden"
+        className="mobile-shell-chrome mobile-topbar sticky top-0 z-30 border-b border-slate-200 bg-white px-1 py-2 dark:border-white/10 dark:bg-[#121a26]"
         style={{ paddingTop: "max(0.6rem, env(safe-area-inset-top))" }}
       >
         {heading.backTo ? (
@@ -251,32 +265,30 @@ export function Layout() {
             <h1 className="mobile-topbar-title">Dashboard</h1>
             <p className="mobile-topbar-greeting">
               {hello}, {firstName}
+              {pwaLayout ? <span className="mobile-shell-badge"> · App · {UI_BUILD}</span> : null}
             </p>
           </div>
         ) : (
           <h1 className="mobile-topbar-title">{heading.title}</h1>
         )}
         <div className="mobile-topbar-actions">
+          <button
+            type="button"
+            className="header-icon-btn shrink-0"
+            aria-label="Search"
+            onClick={() => setMobileSearch(true)}
+          >
+            <Search size={20} />
+          </button>
           <NotificationBell />
           <span className="mobile-topbar-divider" aria-hidden />
           <NavLink
-            to="/settings"
+            to="/settings?tab=profile"
             className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#2563eb] text-[11px] font-bold text-white"
             title="Profile"
           >
             {user?.avatarUrl ? <img src={user.avatarUrl} alt="" className="h-9 w-9 rounded-full object-cover" /> : initials}
           </NavLink>
-          <button
-            type="button"
-            className="shrink-0 rounded-lg p-2 text-slate-600 dark:text-slate-300"
-            aria-label="Sign out"
-            onClick={() => {
-              logout();
-              nav("/login");
-            }}
-          >
-            <LogOut size={20} />
-          </button>
           {install && (
             <button type="button" className="shrink-0 rounded-lg p-2 text-slate-500" aria-label="Install app" onClick={async () => { await install.prompt(); setInstall(null); }}>
               <Download size={16} />
@@ -284,6 +296,30 @@ export function Layout() {
           )}
         </div>
       </header>
+
+      {mobileSearch && (
+        <div className="mobile-shell-chrome mobile-search-sheet" role="dialog" aria-label="Search">
+          <form
+            className="mobile-search-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              submitSearch(query);
+            }}
+          >
+            <Search size={18} className="text-slate-400" />
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Orders, customers, SKU…"
+              className="mobile-search-input"
+            />
+            <button type="button" className="text-sm font-semibold text-gold" onClick={() => { setMobileSearch(false); setQuery(""); }}>
+              Cancel
+            </button>
+          </form>
+        </div>
+      )}
 
       {(!online || pending > 0 || syncing) && (
         <div className={`px-3 py-2 text-center text-xs font-semibold lg:ml-60 ${online ? "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100" : "bg-stone-800 text-white"}`}>
@@ -293,9 +329,11 @@ export function Layout() {
         </div>
       )}
 
-      {open && <button type="button" className="fixed inset-0 z-40 bg-black/50 lg:hidden" aria-label="Close menu" onClick={() => setOpen(false)} />}
+      {open && <button type="button" className="mobile-shell-chrome fixed inset-0 z-40 bg-black/50" aria-label="Close menu" onClick={() => setOpen(false)} />}
 
-      <aside className={`fixed inset-y-0 left-0 z-50 flex h-svh w-[min(15.5rem,88vw)] flex-col overflow-hidden bg-ink text-slate-300 transition-transform duration-200 lg:w-60 lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}>
+      <aside
+        className={`app-sidebar fixed inset-y-0 left-0 z-50 flex h-svh w-[min(15.5rem,88vw)] flex-col overflow-hidden bg-ink text-slate-300 transition-transform duration-200 lg:w-60 ${open ? "is-open translate-x-0" : "-translate-x-full"} ${pwaLayout ? "" : "lg:translate-x-0"}`}
+      >
         <div className="flex shrink-0 items-center justify-between px-5 py-5">
           <div className="flex items-center gap-2.5 text-white">
             <span className="grid h-8 w-8 place-items-center rounded-lg bg-gold text-ink">
@@ -313,24 +351,46 @@ export function Layout() {
           </button>
         </div>
         <nav className="sidebar-nav min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain px-3 pb-3">
-          <div className="px-3 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Main menu</div>
-          {visible.map((l) => (
-            <NavLink key={l.to} to={l.to} end={l.to === "/"} className={({ isActive }) => `sidebar-link ${isActive ? "sidebar-link-on" : ""}`}>
-              <l.icon size={17} />
-              {l.label}
-            </NavLink>
-          ))}
+          {pwaLayout ? (
+            <MobileDrawerNav onNavigate={() => setOpen(false)} />
+          ) : (
+            <>
+              <div className="px-3 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Main menu</div>
+              {visible.map((l) =>
+                l.module === "dashboard" ? (
+                  <NavLink
+                    key={l.to}
+                    to="/"
+                    end
+                    onClick={() => setOpen(false)}
+                    className={({ isActive }) => `sidebar-link ${isActive ? "sidebar-link-on" : ""}`}
+                  >
+                    <l.icon size={17} />
+                    {l.label}
+                  </NavLink>
+                ) : (
+                  <SidebarModuleNav
+                    key={l.to}
+                    module={l.module}
+                    icon={l.icon}
+                    label={l.label}
+                    to={l.to}
+                    onNavigate={() => setOpen(false)}
+                  />
+                ),
+              )}
+            </>
+          )}
         </nav>
         <div className="sidebar-foot shrink-0 border-t border-white/10 p-4">
-          <p className="mb-3 text-[10px] leading-snug text-slate-500">Powering construction &amp; earthworks operations across Kenya.</p>
           <button className="flex items-center gap-2 text-sm font-medium text-slate-100 hover:text-white" onClick={() => { logout(); nav("/login"); }}>
             <LogOut size={14} /> Sign out
           </button>
-          <p className="mt-2 text-[10px] text-slate-600">v1.0 · MTE ERP</p>
+          <p className="mt-2 text-[10px] text-slate-600">v1.0 · {UI_BUILD}</p>
         </div>
       </aside>
 
-      <div className="sticky top-0 z-20 hidden min-h-14 items-center gap-4 border-b border-slate-200 bg-white px-6 py-2 dark:border-white/10 dark:bg-[#121a26] lg:ml-60 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(20rem,36rem)_minmax(0,1fr)]">
+      <div className="desktop-shell-chrome sticky top-0 z-20 hidden min-h-14 items-center gap-4 border-b border-slate-200 bg-white px-6 py-2 dark:border-white/10 dark:bg-[#121a26] lg:ml-60 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(20rem,36rem)_minmax(0,1fr)]">
         <div className="flex min-w-0 items-center gap-3">
           {heading.backTo ? (
             <button type="button" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Go back" onClick={() => nav(heading.backTo!)}>
@@ -364,17 +424,7 @@ export function Layout() {
           className="header-search-wrap relative"
           onSubmit={(e) => {
             e.preventDefault();
-            const q = query.trim();
-            if (!q) return;
-            const lower = q.toLowerCase();
-            if (/^cust-\d+/i.test(q) || lower.includes("customer") || /^\+?\d{9,12}$/.test(q.replace(/\s/g, ""))) {
-              nav(`/customers?q=${encodeURIComponent(q)}`);
-            } else if (/^so-|^inv-|^ord-/i.test(q)) {
-              nav(`/sales?q=${encodeURIComponent(q)}`);
-            } else {
-              nav(`/customers?q=${encodeURIComponent(q)}`);
-            }
-            setQuery("");
+            submitSearch(query);
           }}
         >
           <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -428,13 +478,11 @@ export function Layout() {
         </div>
       )}
 
-      <nav className="bottom-nav lg:hidden">
+      <MobileFab />
+
+      <nav className="mobile-shell-chrome bottom-nav" aria-label="Main">
         {tabs.map((t) => {
-          const active = t.key === "home"
-            ? location.pathname === "/"
-            : t.key === "profile"
-              ? location.pathname.startsWith("/settings") || location.pathname.startsWith("/profile") || location.pathname.startsWith("/more")
-              : location.pathname.startsWith(`/${t.key}`) || (t.key === "sales" && location.pathname.startsWith("/dispatch"));
+          const active = t.isActive(location.pathname, location.search);
           return (
             <NavLink key={t.key} to={t.to} end={t.key === "home"} className={active ? "bn-on" : ""}>
               <t.icon size={18} />

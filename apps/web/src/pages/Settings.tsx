@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { ConfirmDialog, MteSelect, PageHeader, Tabs, mapSelectOptions, useQueryState } from "../components/ui";
+import { ConfirmDialog, MteSelect, PageHeader, mapSelectOptions, useQueryState } from "../components/ui";
 import { openAssistantFromLink } from "../components/AiAssistant";
 import { Link } from "react-router-dom";
 import { canModule } from "../lib/access";
@@ -13,22 +13,11 @@ export function Settings() {
   const admin = canModule(user, "settings");
   const [tabRaw, setTabRaw] = useQueryState("tab", admin ? "company" : "profile");
   const tab = (["company", "profile", "integrations"].includes(tabRaw) ? tabRaw : admin ? "company" : "profile") as "profile" | "company" | "integrations";
-  const setTab = (next: typeof tab) => setTabRaw(next);
+  const settingsTitle = tab === "company" ? "Company" : tab === "integrations" ? "Integrations" : "My profile";
 
   return (
     <div className="space-y-4 suite-dash">
-      <PageHeader eyebrow={admin ? "Company" : "Account"} title="Settings" />
-      {admin ? (
-        <Tabs
-          value={tab}
-          onChange={setTab}
-          items={[
-            { id: "company", label: "Company" },
-            { id: "integrations", label: "Integrations" },
-            { id: "profile", label: "My profile" },
-          ]}
-        />
-      ) : null}
+      <PageHeader eyebrow={admin ? "Company" : "Account"} title={settingsTitle} />
       {admin && tab === "company" ? <CompanySettings /> : null}
       {admin && tab === "integrations" ? <IntegrationsSettings /> : null}
       {(!admin || tab === "profile") ? <AccountPanel /> : null}

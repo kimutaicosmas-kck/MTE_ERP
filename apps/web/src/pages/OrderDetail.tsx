@@ -232,7 +232,7 @@ export function OrderDetail() {
           <div className="flex justify-between border-t pt-2"><span>Paid</span><span className="text-emerald-700">{money(o.totals.paid)}</span></div>
           <div className="flex justify-between"><span>Balance</span><span className={o.totals.balance > 0.01 ? "text-red-700" : ""}>{money(o.totals.balance)}</span></div>
         </div>
-        {!isDraft ? (
+        {!isDraft && (
           <div className="card space-y-3">
             <h2 className="font-semibold">Payment</h2>
             {(o.invoice?.number || o.invoiceNumber) ? (
@@ -252,11 +252,6 @@ export function OrderDetail() {
                 </li>
               ))}
             </ul>
-          </div>
-        ) : (
-          <div className="card space-y-2 text-sm text-stone-500">
-            <h2 className="font-semibold text-stone-800">Next step</h2>
-            <p>Send the quotation to your customer. When they accept, click <strong>Confirm sales order</strong> above.</p>
           </div>
         )}
       </div>
