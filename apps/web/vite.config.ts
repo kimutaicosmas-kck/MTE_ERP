@@ -12,6 +12,7 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["favicon.svg", "icon-192.jpg", "icon-512.jpg"],
       manifest: {
+        id: "/",
         name: "MTE ERP",
         short_name: "MTE ERP",
         description: "Earth-moving parts operations",
@@ -24,8 +25,8 @@ export default defineConfig({
         theme_color: "#c4a035",
         icons: [
           { src: "/icon-192.jpg", sizes: "192x192", type: "image/jpeg", purpose: "any" },
-          { src: "/icon-512.jpg", sizes: "512x512", type: "image/jpeg", purpose: "any maskable" },
-          { src: "/favicon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
+          { src: "/icon-512.jpg", sizes: "512x512", type: "image/jpeg", purpose: "any" },
+          { src: "/icon-512.jpg", sizes: "512x512", type: "image/jpeg", purpose: "maskable" },
         ],
       },
       injectManifest: {

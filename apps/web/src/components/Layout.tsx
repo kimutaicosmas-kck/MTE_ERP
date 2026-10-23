@@ -19,7 +19,6 @@ import {
   Settings,
   Contact,
   X,
-  Download,
   ArrowLeft,
   Search,
   Hexagon,
@@ -33,6 +32,7 @@ import { isOnline } from "../lib/offline";
 import { useTheme } from "../lib/theme";
 import { usePageTitle } from "../lib/page-title";
 import { NotificationBell } from "./NotificationBell";
+import { PwaInstallHelp } from "./PwaInstallHelp";
 import { AssistantGlobalListener, AssistantProvider } from "./AiAssistant";
 import { SidebarModuleNav } from "./SidebarModuleNav";
 import { MobileFab } from "./MobileFab";
@@ -76,7 +76,6 @@ export function Layout() {
   const [online, setOnline] = useState(isOnline());
   const [pending, setPending] = useState(0);
   const [syncing, setSyncing] = useState(false);
-  const [install, setInstall] = useState<any>(null);
   const [help, setHelp] = useState(false);
   const [query, setQuery] = useState("");
   const [mobileSearch, setMobileSearch] = useState(false);
@@ -130,19 +129,11 @@ export function Layout() {
     window.addEventListener("online", sync);
     window.addEventListener("mte-offline-change", onQueue);
     navigator.serviceWorker?.addEventListener("message", (e) => { if (e.data?.type === "SYNC") sync(); });
-    const ready: any = (e: any) => {
-      e.preventDefault();
-      (window as Window & { deferredPrompt?: Event }).deferredPrompt = e;
-      setInstall(e);
-    };
-    window.addEventListener("beforeinstallprompt", ready);
     return () => {
       window.removeEventListener("online", onStatus);
       window.removeEventListener("offline", onStatus);
       window.removeEventListener("online", sync);
       window.removeEventListener("mte-offline-change", onQueue);
-      window.removeEventListener("beforeinstallprompt", ready);
-      delete (window as Window & { deferredPrompt?: Event }).deferredPrompt;
     };
   }, [qc]);
 
@@ -289,11 +280,7 @@ export function Layout() {
           >
             {user?.avatarUrl ? <img src={user.avatarUrl} alt="" className="h-9 w-9 rounded-full object-cover" /> : initials}
           </NavLink>
-          {install && (
-            <button type="button" className="shrink-0 rounded-lg p-2 text-slate-500" aria-label="Install app" onClick={async () => { await install.prompt(); setInstall(null); }}>
-              <Download size={16} />
-            </button>
-          )}
+          <PwaInstallHelp />
           <button
             type="button"
             className="header-icon-btn shrink-0 text-slate-600 dark:text-slate-200"
@@ -440,11 +427,7 @@ export function Layout() {
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search orders, customers, products, invoices…" className="header-search text-sm" />
         </form>
         <div className="flex shrink-0 items-center justify-end gap-1.5">
-          {install && (
-            <button className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" onClick={async () => { await install.prompt(); setInstall(null); }}>
-              <Download size={16} />
-            </button>
-          )}
+          <PwaInstallHelp className="rounded-lg p-2 text-slate-500 hover:bg-stone-100 dark:text-slate-200 dark:hover:bg-white/10" />
           <NotificationBell />
           <NavLink to="/settings" className="ml-0.5 grid h-8 w-8 place-items-center rounded-full bg-slate-800 text-[11px] font-bold text-white" title="Profile">
             {user?.avatarUrl ? <img src={user.avatarUrl} alt="" className="h-8 w-8 rounded-full object-cover" /> : initials}

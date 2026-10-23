@@ -4,6 +4,12 @@ export const MOBILE_BP = 640;
 /** Match Tailwind `lg` — phone/PWA layout vs desktop chrome */
 export const PWA_LAYOUT_BP = 1024;
 
+export function isIosBrowser() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
 export function isStandaloneDisplayMode() {
   if (typeof window === "undefined") return false;
   const nav = window.navigator as Navigator & { standalone?: boolean };
