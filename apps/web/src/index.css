@@ -3410,22 +3410,35 @@ html.dark input.login-input {
   border-color: rgb(255 255 255 / 0.12);
   color: #f8fafc;
 }
+.login-pass-wrap {
+  position: relative;
+  overflow: visible;
+}
 .login-pass-wrap .login-input { padding-right: 2.85rem; }
-.login-input-action {
+.login-pass-wrap .login-input-action,
+button.login-input-action {
   position: absolute;
-  right: 0.55rem;
+  top: 50%;
+  right: 0.5rem;
+  transform: translateY(-50%);
+  z-index: 2;
+  margin: 0;
   display: grid;
   place-items: center;
-  width: 2rem;
-  height: 2rem;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
   border: 0;
   border-radius: 0.5rem;
   background: transparent;
   color: #64748b;
   cursor: pointer;
+  line-height: 1;
 }
-.login-input-action:hover { color: #0f172a; background: #f1f5f9; }
-html.dark .login-input-action:hover { color: #f8fafc; background: rgb(255 255 255 / 0.08); }
+.login-pass-wrap .login-input-action:hover,
+button.login-input-action:hover { color: #0f172a; background: #f1f5f9; }
+html.dark .login-pass-wrap .login-input-action:hover,
+html.dark button.login-input-action:hover { color: #f8fafc; background: rgb(255 255 255 / 0.08); }
 .login-code { letter-spacing: 0.28em; font-weight: 600; text-align: center; padding-left: 3rem; }
 .login-submit {
   display: inline-flex;
