@@ -1,5 +1,6 @@
 import { Check, ChevronDown, Search, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useExclusiveDropdown } from "../lib/exclusive-dropdown";
 
 export type MteSelectOption = { value: string; label: string; hint?: string };
 
@@ -46,7 +47,7 @@ export function MteSelect({
 }) {
   const autoId = useId();
   const id = idProp || autoId;
-  const [open, setOpen] = useState(false);
+  const { open, setOpen } = useExclusiveDropdown(`mte-select-${id}`);
   const [q, setQ] = useState("");
   const [mobile, setMobile] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia("(max-width: 1023px)").matches : false,

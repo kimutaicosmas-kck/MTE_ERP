@@ -1,5 +1,6 @@
 import { Plus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useExclusiveDropdown } from "../lib/exclusive-dropdown";
 import { Link, useLocation } from "react-router-dom";
 import { CREATE_ACTIONS } from "../lib/create-actions";
 import { canModule } from "../lib/access";
@@ -9,7 +10,7 @@ import { showMobileCreateFab } from "../lib/mobile-shell";
 export function MobileFab() {
   const { user } = useAuth();
   const { pathname } = useLocation();
-  const [open, setOpen] = useState(false);
+  const { open, setOpen, toggle } = useExclusiveDropdown("mobile-fab");
 
   const actions = useMemo(() => {
     const create = CREATE_ACTIONS.filter((a) => canModule(user, a.module));
@@ -48,7 +49,7 @@ export function MobileFab() {
           className="mobile-create-fab"
           aria-label={open ? "Close quick actions" : "Quick actions"}
           aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
+          onClick={toggle}
         >
           <Plus size={26} className={open ? "rotate-45 transition-transform" : "transition-transform"} />
         </button>

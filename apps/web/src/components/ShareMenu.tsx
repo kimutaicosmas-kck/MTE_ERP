@@ -1,5 +1,6 @@
 import { ChevronDown, Copy, Mail, Share2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useExclusiveDropdown } from "../lib/exclusive-dropdown";
 import { shareMessage, sharePdfUrl, shareUrl, type DocKind } from "../lib/doc-style";
 
 export function ShareMenu({
@@ -17,7 +18,7 @@ export function ShareMenu({
   phone?: string | null;
   email?: string | null;
 }) {
-  const [open, setOpen] = useState(false);
+  const { open, setOpen, toggle } = useExclusiveDropdown(`share-${token || number}`);
   const [copied, setCopied] = useState("");
   const box = useRef<HTMLDivElement>(null);
 
@@ -60,7 +61,7 @@ export function ShareMenu({
 
   return (
     <div className="share-dd" ref={box}>
-      <button type="button" className="btn-ghost" onClick={() => setOpen((v) => !v)}>
+      <button type="button" className="btn-ghost" onClick={toggle}>
         <Share2 size={16} /> Share <ChevronDown size={14} />
       </button>
       {open && (

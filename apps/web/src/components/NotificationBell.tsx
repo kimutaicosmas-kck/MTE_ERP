@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
+import { useExclusiveDropdown } from "../lib/exclusive-dropdown";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { ActionAlertList, type ActionAlert } from "./ActionAlerts";
@@ -13,7 +14,7 @@ export function NotificationBell() {
   const qc = useQueryClient();
   const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
+  const { open, setOpen, toggle } = useExclusiveDropdown("notifications");
   const notices = useQuery({
     queryKey: ["notices"],
     queryFn: () => api<{ unread: number; items: Notice[] }>("/api/notices"),
@@ -110,7 +111,7 @@ export function NotificationBell() {
         className="relative rounded-full p-2 text-slate-600 hover:bg-stone-100 dark:text-slate-200 dark:hover:bg-white/10"
         aria-label="Notifications"
         aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggle}
       >
         <Bell size={20} />
         {badge > 0 && (

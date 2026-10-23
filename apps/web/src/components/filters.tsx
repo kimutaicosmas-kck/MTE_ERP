@@ -1,5 +1,5 @@
 import { SlidersHorizontal, X } from "lucide-react";
-import { useState } from "react";
+import { useExclusiveDropdown } from "../lib/exclusive-dropdown";
 import { MteSelect } from "./MteSelect";
 
 export type FilterOption = { value: string; label: string };
@@ -44,7 +44,7 @@ export function MobileFilters({
   fields: FilterField[];
   onClear?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const { open, setOpen } = useExclusiveDropdown(`filters-${title}`);
   const active = fields.some(fieldActive);
 
   return (

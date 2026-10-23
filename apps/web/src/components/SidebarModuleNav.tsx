@@ -1,6 +1,7 @@
 import { ChevronDown } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
+import { useExclusiveDropdown } from "../lib/exclusive-dropdown";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { moduleSidebarActiveId, moduleSidebarChildren } from "../lib/module-sidebar-nav";
@@ -26,7 +27,7 @@ export function SidebarModuleNav({
   const children = useMemo(() => moduleSidebarChildren(module, user), [module, user]);
   const inModule = pathname === to || (to !== "/" && pathname.startsWith(to));
   const activeId = FLAT_SIDEBAR_MODULES.has(module) ? null : moduleSidebarActiveId(module, pathname, search);
-  const [open, setOpen] = useState(inModule);
+  const { open, setOpen } = useExclusiveDropdown(`sidebar-${module}`);
 
   useEffect(() => {
     if (inModule) setOpen(true);

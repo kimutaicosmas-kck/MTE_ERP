@@ -281,6 +281,15 @@ export function Layout() {
             <Search size={20} />
           </button>
           <NotificationBell />
+          <button
+            type="button"
+            className="header-icon-btn shrink-0 text-slate-600 dark:text-slate-200"
+            aria-label="Sign out"
+            title="Sign out"
+            onClick={() => { logout(); nav("/login"); }}
+          >
+            <LogOut size={20} />
+          </button>
           <span className="mobile-topbar-divider" aria-hidden />
           <NavLink
             to="/settings?tab=profile"
@@ -437,6 +446,15 @@ export function Layout() {
             </button>
           )}
           <NotificationBell />
+          <button
+            type="button"
+            className="rounded-full p-2 text-slate-600 hover:bg-stone-100 dark:text-slate-200 dark:hover:bg-white/10"
+            aria-label="Sign out"
+            title="Sign out"
+            onClick={() => { logout(); nav("/login"); }}
+          >
+            <LogOut size={20} />
+          </button>
           <NavLink to="/settings" className="ml-0.5 grid h-8 w-8 place-items-center rounded-full bg-slate-800 text-[11px] font-bold text-white" title="Profile">
             {user?.avatarUrl ? <img src={user.avatarUrl} alt="" className="h-8 w-8 rounded-full object-cover" /> : initials}
           </NavLink>

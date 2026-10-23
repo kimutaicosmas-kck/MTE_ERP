@@ -45,7 +45,7 @@ registerRoute(
 registerRoute(
   ({ request, url }) => (request.destination === "style" || request.destination === "script" || request.destination === "font") && url.origin === self.location.origin,
   new StaleWhileRevalidate({
-    cacheName: "mte-static-v32",
+    cacheName: "mte-static-v33",
     plugins: [new ExpirationPlugin({ maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 * 7 })],
   })
 );
