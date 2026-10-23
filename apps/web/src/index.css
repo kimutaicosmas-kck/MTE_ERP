@@ -199,7 +199,11 @@ a.btn, a.btn-gold, a.btn-success, a.btn-danger, a.btn-ghost {
   @apply dark:border-white/10 dark:from-[#151d2a] dark:to-[#121a26];
 }
 .card:hover { @apply border-slate-300/80 dark:border-white/15; }
-.suite-dash { @apply space-y-4; }
+.suite-dash {
+  @apply space-y-4;
+  min-width: 0;
+  max-width: 100%;
+}
 
 .app-main {
   background:
@@ -672,7 +676,7 @@ html.dark .page-quick-link a:hover { color: #fbbf24; }
 .stat-grid-module {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
-@media (min-width: 640px) {
+@media (min-width: 1024px) and (max-width: 1279px) {
   .stat-grid-module {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
@@ -1161,15 +1165,18 @@ html.dark .module-toolbar-actions {
     grid-row: 1;
     margin: 0;
   }
+  /* List body, tables, cards, pager — full width below toolbar (not only Register pages). */
+  .module-list-suite > :not(.module-list-toolbar) {
+    grid-column: 1 / -1;
+    min-width: 0;
+    width: 100%;
+  }
   .module-list-suite > .register-tools {
     display: flex !important;
     grid-column: 3;
     grid-row: 1;
     margin: 0;
-  }
-  .module-list-suite > p,
-  .module-list-suite > .register-root {
-    grid-column: 1 / -1;
+    width: auto;
   }
 }
 .module-list-suite .register-root {

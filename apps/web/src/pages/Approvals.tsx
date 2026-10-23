@@ -92,28 +92,30 @@ export function Approvals() {
             </div>
           </div>
         </div>
-      <div className="space-y-3 p-4 pt-0">
-        {rows.length === 0 && <EmptyState title="No approvals yet" />}
-        {pager.slice.map((a) => (
-          <div key={a.id} className="card">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <div className="font-semibold">{approvalTitle(a.type)}</div>
-                <div className="text-sm text-stone-500">{a.requester.name} · {a.reason}</div>
-                <p className="mt-2 text-sm">{approvalStory(a)}</p>
+      <div className="module-list-body">
+        <div className="space-y-3 p-4 pt-0">
+          {rows.length === 0 && <EmptyState title="No approvals yet" />}
+          {pager.slice.map((a) => (
+            <div key={a.id} className="card">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold">{approvalTitle(a.type)}</div>
+                  <div className="text-sm text-stone-500">{a.requester.name} · {a.reason}</div>
+                  <p className="mt-2 text-sm">{approvalStory(a)}</p>
+                </div>
+                <span className={`status-pill shrink-0 ${a.status === "PENDING" ? "status-pill-warn" : a.status === "APPROVED" ? "status-pill-ok" : "status-pill-danger"}`}>{a.status}</span>
               </div>
-              <span className={`status-pill ${a.status === "PENDING" ? "status-pill-warn" : a.status === "APPROVED" ? "status-pill-ok" : "status-pill-danger"}`}>{a.status}</span>
+              {a.status === "PENDING" && user?.role === "SUPER_ADMIN" && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button className="btn-success" onClick={() => decide.mutate({ id: a.id, decision: "APPROVED" })}>Approve</button>
+                  <button className="btn-danger" onClick={() => decide.mutate({ id: a.id, decision: "REJECTED" })}>Reject</button>
+                </div>
+              )}
             </div>
-            {a.status === "PENDING" && user?.role === "SUPER_ADMIN" && (
-              <div className="mt-3 flex gap-2">
-                <button className="btn-success" onClick={() => decide.mutate({ id: a.id, decision: "APPROVED" })}>Approve</button>
-                <button className="btn-danger" onClick={() => decide.mutate({ id: a.id, decision: "REJECTED" })}>Reject</button>
-              </div>
-            )}
-          </div>
-        ))}
+          ))}
+        </div>
+        {rows.length > 0 && <div className="px-4 pb-4"><Pager {...pager} /></div>}
       </div>
-      {rows.length > 0 && <div className="px-4 pb-4"><Pager {...pager} /></div>}
       </section>
     </div>
   );
