@@ -7,6 +7,7 @@ import { MobileFilters, prettyLabel } from "../components/filters";
 import { Register, useListSort } from "../components/register";
 import { EmptyRow, PageHeader, Stat, StatGrid, seriesByDay, useQueryState } from "../components/ui";
 import { api } from "../lib/api";
+import { formatTableDate } from "../lib/format-date";
 import {
   countDispatchTab,
   DISPATCH_LABEL,
@@ -234,6 +235,7 @@ export function Dispatch() {
             subtitle: (o) => o.customer?.name || "—",
             status: (o) => <DispatchStatus status={o.status} />,
             fields: [
+              { label: "Date", value: (o) => formatTableDate(o.createdAt) },
               { label: "Delivery", value: (o) => prettyLabel(String(o.dispatchMethod || "—")) },
             ],
             actions: (o) => (
@@ -247,19 +249,21 @@ export function Dispatch() {
                 <tr>
                   <th>Order #</th>
                   <th>Customer</th>
+                  <th>Date</th>
                   <th>Delivery</th>
                   <th>Status</th>
                   <th aria-label="Open" />
                 </tr>
               </thead>
               <tbody>
-                {listing.sorted.length === 0 && <EmptyRow cols={5} label="No dispatch jobs match." />}
+                {listing.sorted.length === 0 && <EmptyRow cols={6} label="No dispatch jobs match." />}
                 {pager.slice.map((o) => (
                   <tr key={o.id} className="cursor-pointer" onClick={() => nav(`/dispatch/${o.id}`)}>
                     <td>
                       <Link className="font-medium text-ink" to={`/dispatch/${o.id}`} onClick={(e) => e.stopPropagation()}>{o.number}</Link>
                     </td>
                     <td>{o.customer?.name || "—"}</td>
+                    <td>{formatTableDate(o.createdAt)}</td>
                     <td>{prettyLabel(String(o.dispatchMethod || "—"))}</td>
                     <td><DispatchStatus status={o.status} /></td>
                     <td className="text-right text-stone-400">

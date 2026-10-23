@@ -575,6 +575,7 @@ function BillsTab() {
               <tr>
                 <th>Bill</th>
                 <th>Supplier</th>
+                <th>Date</th>
                 <th>PO</th>
                 <th className="num">Total</th>
                 <th className="num">Paid</th>
@@ -584,11 +585,12 @@ function BillsTab() {
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 && <EmptyRow cols={8} label="No supplier bills yet. Receive a purchase order in Procurement first." />}
+              {rows.length === 0 && <EmptyRow cols={9} label="No supplier bills yet. Receive a purchase order in Procurement first." />}
               {pager.slice.map((b) => (
                 <tr key={b.id}>
                   <td className="font-semibold">{b.number}</td>
                   <td>{b.vendor?.name}</td>
+                  <td>{b.createdAt ? fmtDate(b.createdAt) : "—"}</td>
                   <td>{b.purchase?.number || "—"}</td>
                   <td className="num">{money(b.gross)}</td>
                   <td className="num">{money(b.paid)}</td>
@@ -1170,17 +1172,18 @@ function CollectionsTab() {
         <table className="invoice">
           <thead>
             <tr>
-              <th>Invoice</th><th>Customer</th><th>Sales</th><th>Due</th><th className="num">Balance</th><th>Age</th><th>Actions</th>
+              <th>Invoice</th><th>Customer</th><th>Sales</th><th>Date</th><th>Due</th><th className="num">Balance</th><th>Age</th><th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && <EmptyRow cols={7} label="No outstanding invoices." />}
+            {rows.length === 0 && <EmptyRow cols={8} label="No outstanding invoices." />}
             {pager.slice.map((r: any) => (
               <tr key={r.id}>
                 <td className="font-medium">{r.number}</td>
                 <td>{r.customer}</td>
                 <td>{r.salesperson}</td>
-                <td>{r.dueAt ? new Date(r.dueAt).toLocaleDateString("en-GB") : "—"}</td>
+                <td>{r.issuedAt ? fmtDate(r.issuedAt) : "—"}</td>
+                <td>{r.dueAt ? fmtDate(r.dueAt) : "—"}</td>
                 <td className="num font-medium">{money(r.balance)}</td>
                 <td>{r.daysOverdue > 0 ? `${r.daysOverdue}d overdue` : "Current"}</td>
                 <td>

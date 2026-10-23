@@ -17,7 +17,7 @@ export function canConfirmOrder(status: string) {
   return status === "DRAFT";
 }
 
-/** Cancel from Sales before the order is out for delivery. */
+/** Cancel from list: quotations and in-dispatch only (not after confirm). */
 export function canCancelOrder(status: string) {
-  return ["DRAFT", "CONFIRMED", "PICKING", "PACKING", "PICKED"].includes(status);
+  return status === "DRAFT" || ["PICKING", "PACKING", "PICKED"].includes(status);
 }

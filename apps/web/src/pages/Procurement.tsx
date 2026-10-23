@@ -5,6 +5,7 @@ import { Register, useListSort } from "../components/register";
 import { MobileFilters, prettyLabel } from "../components/filters";
 import { EmptyRow, ExportButtons, PageHeader, Pager, RowPdf, Stat, StatGrid, seriesByMonth, useQueryState } from "../components/ui";
 import { api, downloadPurchasePdf, money } from "../lib/api";
+import { formatTableDate } from "../lib/format-date";
 import { usePager } from "../lib/pager";
 import { useQuery } from "@tanstack/react-query";
 
@@ -171,7 +172,8 @@ export function Procurement() {
           subtitle: (p) => p.vendor.name,
           status: (p) => <span className={`badge ${TONE[p.status] || "bg-stone-100"}`}>{p.status}</span>,
           fields: [
-            { label: "Expected", value: (p) => p.expectedAt ? new Date(p.expectedAt).toLocaleDateString() : "—" },
+            { label: "Date", value: (p) => formatTableDate(p.createdAt) },
+            { label: "Expected", value: (p) => p.expectedAt ? formatTableDate(p.expectedAt) : "—" },
             { label: "Total", value: (p) => money(p.totals.gross), align: "right" },
             { label: "Lines", value: (p) => String(p.lines.length), align: "right" },
           ],
@@ -184,6 +186,7 @@ export function Procurement() {
             <tr>
               <th>PO</th>
               <th>Vendor</th>
+              <th>Date</th>
               <th className="num">Lines</th>
               <th>Expected</th>
               <th className="num">Total</th>
@@ -193,7 +196,7 @@ export function Procurement() {
             </tr>
           </thead>
           <tbody>
-            {listing.sorted.length === 0 && <EmptyRow cols={8} label="No purchase orders yet — Create one" actionLabel="Create one" to="/procurement/new" />}
+            {listing.sorted.length === 0 && <EmptyRow cols={9} label="No purchase orders yet — Create one" actionLabel="Create one" to="/procurement/new" />}
             {pager.slice.map((p) => (
               <tr key={p.id} className="cursor-pointer" onClick={() => nav(`/procurement/${p.id}`)}>
                 <td>
@@ -204,6 +207,7 @@ export function Procurement() {
                   {p.vendor.name}
                   <div className="text-xs text-stone-500">{p.reference || "No supplier ref"}</div>
                 </td>
+                <td>{formatTableDate(p.createdAt)}</td>
                 <td className="num">{p.lines.length} · {p.lines.reduce((s, l) => s + l.qtyReceived, 0)}/{p.lines.reduce((s, l) => s + l.qtyOrdered, 0)}</td>
                 <td>{p.expectedAt ? new Date(p.expectedAt).toLocaleDateString() : "—"}</td>
                 <td className="num">{money(p.totals.gross)}</td>

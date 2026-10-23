@@ -5,7 +5,6 @@ import { Link, useNavigate } from "react-router-dom";
 import { BranchFilter } from "../components/BranchFilter";
 import { MobileFilters } from "../components/filters";
 import { Register, useListSort } from "../components/register";
-import { ShareMenu } from "../components/ShareMenu";
 import {
   ConfirmDialog,
   EmptyRow,
@@ -22,6 +21,7 @@ import { api, money } from "../lib/api";
 import { canModule } from "../lib/access";
 import { useAuth } from "../lib/auth";
 import { usePager } from "../lib/pager";
+import { formatTableDate } from "../lib/format-date";
 import { canCancelOrder, canConfirmOrder, salesStatusLabel } from "../lib/sales-status";
 import { MobileModuleChips } from "../components/MobileModuleChips";
 
@@ -345,7 +345,7 @@ export function Sales() {
                   o.number,
                   o.customer.name,
                   o.salesperson?.name || "—",
-                  saleDate(o.createdAt),
+                  formatTableDate(o.createdAt),
                   ksh(o.totals.gross),
                   salesStatusLabel(o.status),
                 ])}
@@ -387,7 +387,7 @@ export function Sales() {
           subtitle: (o) => o.customer.name,
           status: (o) => <SaleStatus status={o.status} />,
           fields: [
-            { label: "Date", value: (o) => saleDate(o.createdAt) },
+            { label: "Date", value: (o) => formatTableDate(o.createdAt) },
             { label: "Total", value: (o) => ksh(o.totals.gross), align: "right" },
             ...(!sales ? [{ label: "Sales", value: (o) => o.salesperson?.name || "—" }] : []),
           ],
@@ -404,13 +404,6 @@ export function Sales() {
                 </button>
               )}
               <OrderDocs orderId={o.id} status={o.status} compact />
-              <ShareMenu
-                token={o.shareToken}
-                kind={o.status === "DRAFT" ? "quotation" : "sales-order"}
-                number={o.number}
-                customerName={o.customer.name}
-                phone={o.customer.phone}
-              />
             </div>
           ),
         }}
@@ -445,7 +438,7 @@ export function Sales() {
                   </td>
                   <td>{o.customer.name}</td>
                   <td>{o.salesperson?.name || "—"}</td>
-                  <td>{saleDate(o.createdAt)}</td>
+                  <td>{formatTableDate(o.createdAt)}</td>
                   <td className="num">{ksh(o.totals.gross)}</td>
                   <td><SaleStatus status={o.status} /></td>
                   <td onClick={(e) => e.stopPropagation()}>
@@ -472,13 +465,6 @@ export function Sales() {
                         </button>
                       )}
                       <OrderDocs orderId={o.id} status={o.status} compact />
-                      <ShareMenu
-                        token={o.shareToken}
-                        kind={o.status === "DRAFT" ? "quotation" : "sales-order"}
-                        number={o.number}
-                        customerName={o.customer.name}
-                        phone={o.customer.phone}
-                      />
                     </div>
                   </td>
                 </tr>
@@ -522,10 +508,6 @@ export function Sales() {
 function pctChange(now?: number, prev?: number) {
   if (prev == null || !Number.isFinite(prev) || prev === 0) return null;
   return (((now || 0) - prev) / Math.abs(prev)) * 100;
-}
-
-function saleDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
 function ksh(n?: number) {

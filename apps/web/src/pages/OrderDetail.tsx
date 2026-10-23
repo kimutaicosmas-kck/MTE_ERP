@@ -11,7 +11,7 @@ import { canModule } from "../lib/access";
 import { useAuth } from "../lib/auth";
 import type { DocModel } from "../lib/doc-style";
 import { useSetPageTitle } from "../lib/page-title";
-import { salesStatusLabel } from "../lib/sales-status";
+import { canCancelOrder, salesStatusLabel } from "../lib/sales-status";
 import { DISPATCH_LABEL } from "../lib/dispatch-status";
 
 export function OrderDetail() {
@@ -141,7 +141,7 @@ export function OrderDetail() {
         {canModule(user, "dispatch") && !isDraft && !completed && o.status !== "CANCELLED" && (
           <Link className="btn-gold" to={`/dispatch/${o.id}`}>Open in Dispatch</Link>
         )}
-        {canModule(user, "sales") && !isDraft && o.status !== "CANCELLED" && !completed && (
+        {canModule(user, "sales") && !isDraft && canCancelOrder(o.status) && !completed && (
           <button
             type="button"
             className="btn-danger"
