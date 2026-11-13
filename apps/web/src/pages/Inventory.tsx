@@ -3,7 +3,6 @@ import { AlertTriangle, ArrowDownToLine, ArrowUpFromLine, Boxes, Lock, Package, 
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { MachinePartSearch } from "../components/MachinePartSearch";
-import { CaptureField } from "../components/CaptureField";
 import { ImportButton } from "../components/ImportButton";
 import { Register, useListSort } from "../components/register";
 import { MobileFilters } from "../components/filters";
