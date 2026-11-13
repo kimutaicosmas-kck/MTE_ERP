@@ -2695,21 +2695,24 @@ html.dark .action-alert-item--warn { color: #fbbf24; }
   gap: 1rem;
 }
 @media (min-width: 1024px) {
-  /* Form: compact column; live document preview uses the rest of the width */
+  /* Form and live preview — equal half-width columns on desktop */
   .doc-composer-grid {
-    grid-template-columns: minmax(0, 22rem) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     align-items: start;
     gap: 1.25rem;
   }
-}
-@media (min-width: 1280px) {
-  .doc-composer-grid { grid-template-columns: minmax(0, 24rem) minmax(0, 1fr); }
 }
 .doc-live {
   display: none;
 }
 @media (min-width: 1024px) {
-  .doc-live { display: block; position: sticky; top: 4.75rem; min-width: 0; }
+  .doc-live { display: block; position: sticky; top: 4.75rem; min-width: 0; width: 100%; }
+  .doc-composer-grid > .space-y-4 {
+    min-width: 0;
+    max-height: calc(100dvh - 6rem);
+    overflow-y: auto;
+    padding-right: 0.25rem;
+  }
   .doc-live-inner {
     max-height: calc(100dvh - 6rem);
     overflow: auto;
