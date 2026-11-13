@@ -5,6 +5,7 @@ import { EnterpriseRoadmap } from "../../components/EnterpriseRoadmap";
 import { EmptyRow, Pager } from "../../components/ui";
 import { api } from "../../lib/api";
 import { usePager } from "../../lib/pager";
+import type { WarehouseTree } from "../../lib/warehouse-bins";
 
 export type InvDash = {
   products: number;
@@ -161,8 +162,6 @@ export function InventoryMovements() {
     </div>
   );
 }
-
-import type { WarehouseTree } from "../../lib/warehouse-bins";
 
 export function InventoryWarehouses() {
   const qc = useQueryClient();
