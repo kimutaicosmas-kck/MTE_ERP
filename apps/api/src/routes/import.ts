@@ -10,7 +10,7 @@ export const importRouter = Router();
 
 const TEMPLATES: Record<string, string[]> = {
   customers: ["name", "phone", "email", "kraPin", "creditLimit", "paymentTerms", "notes"],
-  parts: ["sku", "oemNumber", "name", "category", "binLocation", "cost", "salePrice", "reorderLevel", "critical", "qtyOnHand"],
+  parts: ["Part No", "Description", "Qty", "Location", "Brand", "Category", "Unit Price", "Total Price"],
   users: ["name", "email", "password", "role", "department", "phone", "monthlyTarget", "commissionRate", "salary"],
   vendors: ["name", "phone", "leadDays", "oem"],
 };
@@ -78,27 +78,35 @@ importRouter.post("/parts", moduleAccess("inventory"), async (req, res) => {
   const result = emptyResult();
   const canQty = req.user!.role === "SUPER_ADMIN";
   for (const [i, row] of rows.entries()) {
-    const sku = cell(row, "sku", "code").toUpperCase();
+    const partNo = cell(row, "partno", "part no", "oemnumber", "oem", "sku", "code");
     const name = cell(row, "name", "part", "description");
+    const sku = partNo ? partNo.toUpperCase() : "";
     if (!sku || !name) {
-      result.errors.push({ row: i + 2, error: "SKU and name required" });
+      result.errors.push({ row: i + 2, error: "Part No and Description required" });
       continue;
     }
     try {
       const existing = await prisma.part.findUnique({ where: { sku } });
-      const qty = num(row, 0, "qtyOnHand", "qty", "quantity", "stock");
+      const qty = num(row, 0, "qty", "qtyonhand", "quantity", "stock");
+      const salePrice = num(row, 0, "saleprice", "unitprice", "unit price", "price");
+      const brand = cell(row, "brand", "machinebrand");
+      const model = cell(row, "machineModel", "model") || "All";
       const data = {
-        oemNumber: cell(row, "oemNumber", "oem") || sku,
+        oemNumber: partNo || sku,
         name,
         category: cell(row, "category") || "General",
-        binLocation: cell(row, "binLocation", "bin") || "UNASSIGNED",
-        cost: num(row, 0, "cost"),
-        salePrice: num(row, 0, "salePrice", "price"),
-        reorderLevel: num(row, 2, "reorderLevel", "reorder"),
+        binLocation: cell(row, "binlocation", "location", "bin") || "UNASSIGNED",
+        cost: num(row, 0, "cost", "unitcost") || (salePrice > 0 ? Math.round(salePrice * 0.65) : 0),
+        salePrice,
+        reorderLevel: num(row, 2, "reorderlevel", "reorder"),
         critical: flag(row, "critical"),
       };
       if (existing) {
         await prisma.part.update({ where: { id: existing.id }, data });
+        if (brand) {
+          await prisma.partCompat.deleteMany({ where: { partId: existing.id } });
+          await prisma.partCompat.create({ data: { partId: existing.id, machineBrand: brand, machineModel: model } });
+        }
         if (canQty && qty > 0 && existing.qtyOnHand === 0) {
           await prisma.part.update({ where: { id: existing.id }, data: { qtyOnHand: qty } });
           await prisma.stockMovement.create({
@@ -110,7 +118,12 @@ importRouter.post("/parts", moduleAccess("inventory"), async (req, res) => {
         result.updated++;
       } else {
         const part = await prisma.part.create({
-          data: { sku, ...data, qtyOnHand: canQty && qty > 0 ? qty : 0 },
+          data: {
+            sku,
+            ...data,
+            qtyOnHand: canQty && qty > 0 ? qty : 0,
+            compat: brand ? { create: [{ machineBrand: brand, machineModel: model }] } : undefined,
+          },
         });
         if (canQty && qty > 0) {
           await prisma.stockMovement.create({

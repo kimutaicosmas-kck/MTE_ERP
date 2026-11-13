@@ -3889,3 +3889,21 @@ html.dark .master-record-badge { background: rgb(34 197 94 / 0.18); color: #86ef
 }
 html.dark .master-record-bin { color: #e2e8f0; }
 .master-record-stack { display: flex; flex-direction: column; gap: 0.65rem; }
+
+.product-master-table th {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.product-master-table td {
+  vertical-align: top;
+  font-size: 0.82rem;
+}
+.product-master-table tbody tr:hover td {
+  background: rgb(248 250 252);
+}
+html.dark .product-master-table tbody tr:hover td {
+  background: rgb(255 255 255 / 0.04);
+}

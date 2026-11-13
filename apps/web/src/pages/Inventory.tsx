@@ -15,6 +15,7 @@ import { canModule } from "../lib/access";
 import { api, money } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { usePager } from "../lib/pager";
+import { PRODUCT_MASTER_HEADERS, productMasterCsvRow } from "../lib/product-master";
 import { flattenWarehouseBins, type WarehouseTree } from "../lib/warehouse-bins";
 
 const INVENTORY_SECTIONS = [
@@ -141,9 +142,7 @@ export function Inventory() {
   }, [tab]);
   const pager = usePager(listing.sorted, `${tab}|${q}|${category}|${listing.sort}`, 12, true);
 
-  const headers = showCost
-    ? ["Product name", "Part number", "Category", "Selling price", "Unit cost", "On hand", "Value"]
-    : ["Product name", "Part number", "Category", "Selling price", "On hand", "Value"];
+  const headers = [...PRODUCT_MASTER_HEADERS];
 
   const showCatalog = section === "products" || section === "reorder";
 
@@ -298,13 +297,7 @@ export function Inventory() {
                 title="Products"
                 filename="products.csv"
                 headers={headers}
-                rows={rows.map((p) => {
-                  const unit = showCost ? (p.cost || 0) : p.salePrice;
-                  const value = p.qtyOnHand * (showCost ? (p.cost || p.salePrice) : p.salePrice);
-                  return showCost
-                    ? [p.name, p.oemNumber || p.sku, p.category, String(p.salePrice), String(unit), String(p.qtyOnHand), String(value)]
-                    : [p.name, p.oemNumber || p.sku, p.category, String(p.salePrice), String(p.qtyOnHand), String(value)];
-                })}
+                rows={rows.map((p) => productMasterCsvRow(p, showCost))}
               />
               {user?.role !== "SALES" && (
                 <button type="button" className="btn-gold" onClick={() => setOpen(true)}><Plus size={16} /> New product</button>
@@ -330,71 +323,63 @@ export function Inventory() {
           subtitle: (p) => p.oemNumber || p.sku,
           status: (p) => <StockBadge product={p} />,
           fields: [
-            { label: "On hand", value: (p) => `${p.qtyOnHand} / ${p.reorderLevel}`, align: "right" },
-            { label: "Idle", value: (p) => `${p.daysIdle}d`, align: "right" },
-            { label: "Value", value: (p) => ksh(p.qtyOnHand * (showCost ? (p.cost || p.salePrice) : p.salePrice)), align: "right" },
+            { label: "Qty", value: (p) => String(p.qtyOnHand), align: "right" },
+            { label: "Location", value: (p) => p.binLocation || "—" },
+            { label: "Unit price", value: (p) => ksh(showCost ? (p.cost || p.salePrice) : p.salePrice), align: "right" },
           ],
           details: (p) => [
-            { label: "Part number", value: p.oemNumber || p.sku },
+            { label: "Part No", value: p.oemNumber || p.sku },
+            { label: "Brand", value: p.compat[0]?.machineBrand || "—" },
             { label: "Category", value: p.category || "—" },
-            { label: "On hand / min", value: `${p.qtyOnHand} / ${p.reorderLevel}`, align: "right" },
-            { label: "Short by", value: shortfall(p) || "—", align: "right" },
-            { label: "Days idle", value: `${p.daysIdle} days` },
-            { label: "Value", value: ksh(p.qtyOnHand * (showCost ? (p.cost || p.salePrice) : p.salePrice)), align: "right" },
+            { label: "Location", value: p.binLocation || "—" },
+            { label: "Qty / min", value: `${p.qtyOnHand} / ${p.reorderLevel}`, align: "right" },
+            { label: "Total price", value: ksh(p.qtyOnHand * (showCost ? (p.cost || p.salePrice) : p.salePrice)), align: "right" },
           ],
         }}
         action={user?.role !== "SALES" ? <button className="btn-gold" onClick={() => setOpen(true)}><Plus size={16} /> New product</button> : undefined}
       >
       <div className="table-wrap table-keep">
-        <table className="invoice">
+        <table className="invoice product-master-table">
           <thead>
             <tr>
-              <th>Product name</th>
-              <th>Part number</th>
-              <th>Category</th>
-              <th className="num">On hand / min</th>
-              <th>Status</th>
-              <th className="num">Idle</th>
-              <th className="num">Value</th>
-              <th>Actions</th>
+              {PRODUCT_MASTER_HEADERS.map((h) => (
+                <th key={h} className={h === "Qty" || h === "Unit Price" || h === "Total Price" ? "num" : undefined}>
+                  {h}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {listing.sorted.length === 0 && <EmptyRow cols={7} label={data.length === 0 ? "No products yet — Create one" : "No products match."} actionLabel={user?.role !== "SALES" ? "Create one" : undefined} onAction={() => setOpen(true)} />}
+            {listing.sorted.length === 0 && (
+              <EmptyRow
+                cols={PRODUCT_MASTER_HEADERS.length}
+                label={data.length === 0 ? "No products yet — Create one" : "No products match."}
+                actionLabel={user?.role !== "SALES" ? "Create one" : undefined}
+                onAction={() => setOpen(true)}
+              />
+            )}
             {pager.slice.map((p) => {
-              const value = p.qtyOnHand * (showCost ? (p.cost || p.salePrice) : p.salePrice);
+              const unit = showCost ? (p.cost || p.salePrice) : p.salePrice;
+              const total = Math.round(p.qtyOnHand * unit);
+              const brand = p.compat[0]?.machineBrand || "—";
               return (
-                <tr key={p.id} className="cursor-pointer" onClick={() => user?.role !== "SALES" && setEdit(p)}>
+                <tr
+                  key={p.id}
+                  className={user?.role !== "SALES" ? "cursor-pointer" : undefined}
+                  onClick={() => user?.role !== "SALES" && setEdit(p)}
+                >
+                  <td className="font-medium">{p.oemNumber || p.sku}</td>
                   <td className="cell-wrap">
-                    <div className="font-medium text-ink">{p.name}</div>
-                    {p.compat.length > 0 && (
-                      <div className="text-xs text-stone-400">{p.compat.map((c) => `${c.machineBrand} ${c.machineModel}`).join(", ")}</div>
-                    )}
-                    {p.critical && <span className="mt-1 inline-block badge bg-red-50 text-red-700">Critical</span>}
+                    <h2 className="text-sm font-semibold text-ink">{p.name}</h2>
+                    {p.critical && <span className="mt-0.5 inline-block badge bg-red-50 text-red-700">Critical</span>}
+                    {shortfall(p) > 0 && <span className="mt-0.5 ml-1 inline-block badge bg-amber-50 text-amber-800">Short {shortfall(p)}</span>}
                   </td>
-                  <td>
-                    <div className="font-medium">{p.oemNumber || p.sku}</div>
-                    {p.sku && p.sku !== p.oemNumber && <div className="text-xs text-stone-400">SKU {p.sku}</div>}
-                  </td>
-                  <td className="uppercase tracking-wide">{p.category || "—"}</td>
-                  <td className="num">
-                    <div className="font-medium">{p.qtyOnHand} / {p.reorderLevel}</div>
-                    {shortfall(p) > 0 && <div className="text-xs text-amber-700">Short {shortfall(p)}</div>}
-                  </td>
-                  <td><StockBadge product={p} /></td>
-                  <td className="num">{p.daysIdle}d</td>
-                  <td className="num font-medium">{ksh(value)}</td>
-                  <td onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center gap-2">
-                      <CaptureField kind="product" refId={p.id} label="Photo" />
-                      {user?.role !== "SALES" && (
-                        <button className="btn-ghost px-3 py-1 text-xs" onClick={() => setEdit(p)}>Edit</button>
-                      )}
-                      {canBuy && stockKind(p) !== "ok" && (
-                        <Link className="btn-gold px-3 py-1 text-xs" to="/procurement/new">Buy</Link>
-                      )}
-                    </div>
-                  </td>
+                  <td className="num font-medium">{p.qtyOnHand}</td>
+                  <td className="font-mono text-sm">{p.binLocation || "—"}</td>
+                  <td>{brand}</td>
+                  <td>{p.category || "—"}</td>
+                  <td className="num">{ksh(unit)}</td>
+                  <td className="num font-semibold">{ksh(total)}</td>
                 </tr>
               );
             })}

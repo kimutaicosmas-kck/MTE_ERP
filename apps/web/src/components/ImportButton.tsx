@@ -4,12 +4,13 @@ import { useRef, useState } from "react";
 import { Modal } from "./ui";
 import { api } from "../lib/api";
 import { downloadCsv } from "../lib/export";
+import { PRODUCT_MASTER_HEADERS, PRODUCT_MASTER_TEMPLATE_SAMPLE } from "../lib/product-master";
 
 type Kind = "customers" | "parts" | "users" | "vendors";
 
 const HEADERS: Record<Kind, string[]> = {
   customers: ["name", "phone", "email", "kraPin", "creditLimit", "paymentTerms", "notes"],
-  parts: ["sku", "oemNumber", "name", "category", "binLocation", "cost", "salePrice", "reorderLevel", "critical", "qtyOnHand"],
+  parts: [...PRODUCT_MASTER_HEADERS],
   users: ["name", "email", "password", "role", "phone", "monthlyTarget", "commissionRate", "salary"],
   vendors: ["name", "phone", "leadDays", "oem"],
 };
@@ -37,7 +38,18 @@ export function ImportButton({ kind, label }: { kind: Kind; label?: string }) {
 
   return (
     <>
-      <button type="button" className="btn-ghost" onClick={() => downloadCsv(`${kind}-template.csv`, [HEADERS[kind]])}>
+      <button
+        type="button"
+        className="btn-ghost"
+        onClick={() =>
+          downloadCsv(
+            `${kind}-template.csv`,
+            kind === "parts"
+              ? [HEADERS[kind], PRODUCT_MASTER_TEMPLATE_SAMPLE]
+              : [HEADERS[kind]],
+          )
+        }
+      >
         Template
       </button>
       <button type="button" className="btn-ghost" onClick={() => input.current?.click()}>
