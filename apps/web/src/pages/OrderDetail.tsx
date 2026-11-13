@@ -187,7 +187,9 @@ export function OrderDetail() {
               <tr key={l.id}>
                 <td>
                   {l.part.sku} · {l.part.name}
-                  <div className="text-xs text-stone-500">Bin {l.part.binLocation}</div>
+                  <div className="text-xs text-stone-500">
+                    Location {l.remarks || l.part?.binLocation || "—"}
+                  </div>
                 </td>
                 <td>{l.qty}</td>
                 <td>

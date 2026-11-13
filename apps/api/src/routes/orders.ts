@@ -193,6 +193,8 @@ const createBody = z.object({
     qty: z.number().positive().max(100000),
     vendorId: zEntityId().optional(),
     salePrice: z.number().nonnegative().max(1e9).optional(),
+    /** Bin / shelf location to pick this line from. */
+    pickLocation: zText(80),
   })).min(1).max(200),
 });
 
@@ -260,6 +262,7 @@ ordersRouter.post("/", async (req, res) => {
               partId: l.partId,
               vendorId: l.vendorId,
               qty: l.qty,
+              remarks: l.pickLocation.trim(),
               ...prices,
             };
           }),
@@ -307,6 +310,7 @@ ordersRouter.patch("/:id", async (req, res) => {
             partId: l.partId,
             vendorId: l.vendorId,
             qty: l.qty,
+            remarks: l.pickLocation.trim(),
             ...prices,
           };
         }),

@@ -9,7 +9,9 @@ import { MasterRecordCol, MasterRecordPrimary, MasterRecordRow } from "../compon
 import { MteSelect, PageHeader, mapSelectOptions } from "../components/ui";
 import { api, money } from "../lib/api";
 import type { DocModel } from "../lib/doc-style";
-import type { WarehouseTree } from "../lib/warehouse-bins";
+import { flattenWarehouseBins, type WarehouseTree } from "../lib/warehouse-bins";
+
+type SaleLine = { partId: string; qty: number; salePrice?: number; pickLocation: string };
 
 function storeLocationLabel(site: WarehouseTree) {
   const bits = [site.name, `(${site.code})`];
@@ -31,7 +33,7 @@ export function OrderNew() {
   const [intro, setIntro] = useState("");
   const [branchId, setBranchId] = useState("");
   const [warehouseSiteId, setWarehouseSiteId] = useState("");
-  const [lines, setLines] = useState([{ partId: "", qty: 1, salePrice: undefined as number | undefined }]);
+  const [lines, setLines] = useState<SaleLine[]>([{ partId: "", qty: 1, salePrice: undefined, pickLocation: "" }]);
   const branches = useQuery({
     queryKey: ["branches"],
     queryFn: () => api<{ id: string; name: string; code: string }[]>("/api/settings/branches"),
@@ -57,9 +59,10 @@ export function OrderNew() {
           lpo: lpo || undefined,
           validDays: asQuote ? validDays : undefined,
           intro: intro || (asQuote ? "Please quote the following goods" : "Please supply the following goods"),
-          lines: lines.filter((l) => l.partId).map((l) => ({
+          lines: lines.filter((l) => l.partId && l.pickLocation.trim()).map((l) => ({
             partId: l.partId,
             qty: l.qty,
+            pickLocation: l.pickLocation.trim(),
             ...(l.salePrice != null && l.salePrice > 0 ? { salePrice: l.salePrice } : {}),
           })),
         }),
@@ -136,6 +139,25 @@ export function OrderNew() {
     () => mapSelectOptions(warehouses.data || [], (s) => s.id, (s) => s.name, (s) => `${s.code}${s.address ? ` · ${s.address}` : ""}`),
     [warehouses.data],
   );
+  const binRows = useMemo(() => flattenWarehouseBins(warehouses.data || []), [warehouses.data]);
+  const binOptions = useMemo(
+    () => mapSelectOptions(binRows, (b) => b.path, (b) => b.path, (b) => b.hint),
+    [binRows],
+  );
+
+  function setLinePart(i: number, partId: string) {
+    const catalog = parts.data?.find((x) => x.id === partId);
+    setLines((prev) => {
+      const next = [...prev];
+      next[i] = {
+        ...next[i],
+        partId,
+        salePrice: undefined,
+        pickLocation: catalog?.binLocation || next[i].pickLocation || "",
+      };
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (warehouseSiteId || !warehouses.data?.length) return;
@@ -145,6 +167,8 @@ export function OrderNew() {
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!warehouseSiteId) return;
+    const missingLoc = lines.some((l) => l.partId && !l.pickLocation.trim());
+    if (missingLoc) return;
     save.mutate(saveAsQuote);
   }
 
@@ -231,7 +255,7 @@ export function OrderNew() {
                 required
               />
               <p className="mt-0.5 text-[11px] text-stone-500">
-                Where this stock is held and will be picked from (same bins shown on each product line).
+                Overall store for this sale. Enter each item&apos;s bin location on the product lines below.
               </p>
             </div>
             {saveAsQuote && (
@@ -262,10 +286,10 @@ export function OrderNew() {
               const empty = lines.findIndex((l) => !l.partId);
               if (empty >= 0) {
                 const next = [...lines];
-                next[empty] = { partId: p.id, qty: 1, salePrice: undefined };
+                next[empty] = { partId: p.id, qty: 1, salePrice: undefined, pickLocation: p.binLocation || "" };
                 setLines(next);
               } else {
-                setLines([...lines, { partId: p.id, qty: 1, salePrice: undefined }]);
+                setLines([...lines, { partId: p.id, qty: 1, salePrice: undefined, pickLocation: p.binLocation || "" }]);
               }
             }}
           />
@@ -284,11 +308,7 @@ export function OrderNew() {
                       <MteSelect
                         aria-label="Product"
                         value={l.partId}
-                        onChange={(partId) => {
-                          const next = [...lines];
-                          next[i] = { ...next[i], partId, salePrice: undefined };
-                          setLines(next);
-                        }}
+                        onChange={(partId) => setLinePart(i, partId)}
                         options={partOptions}
                         placeholder="Choose product…"
                         required={i === 0}
@@ -309,8 +329,34 @@ export function OrderNew() {
                   <MasterRecordCol label="Category">
                     {catalog ? <span className="master-record-badge">{catalog.category}</span> : <span className="text-xs text-stone-400">—</span>}
                   </MasterRecordCol>
-                  <MasterRecordCol label="Bin in store">
-                    {catalog ? <span className="master-record-bin">{catalog.binLocation}</span> : <span className="text-xs text-stone-400">—</span>}
+                  <MasterRecordCol label="Item location">
+                    {binOptions.length > 0 ? (
+                      <MteSelect
+                        aria-label="Item stock location"
+                        value={l.pickLocation}
+                        onChange={(pickLocation) => {
+                          const next = [...lines];
+                          next[i] = { ...next[i], pickLocation };
+                          setLines(next);
+                        }}
+                        options={binOptions}
+                        placeholder={catalog?.binLocation || "Select bin…"}
+                        required={Boolean(l.partId)}
+                      />
+                    ) : (
+                      <input
+                        className="master-record-bin"
+                        value={l.pickLocation}
+                        onChange={(e) => {
+                          const next = [...lines];
+                          next[i] = { ...next[i], pickLocation: e.target.value };
+                          setLines(next);
+                        }}
+                        placeholder={catalog?.binLocation || "e.g. MAIN-A-12-03"}
+                        required={Boolean(l.partId)}
+                        aria-label="Item stock location"
+                      />
+                    )}
                   </MasterRecordCol>
                   <MasterRecordCol label="Qty">
                     <input
@@ -361,7 +407,7 @@ export function OrderNew() {
             <p className="text-xs text-stone-500">
               Leave unit price blank to use the catalog price. Stock location shows which bin warehouse will pick from.
             </p>
-            <button type="button" className="btn-ghost" onClick={() => setLines([...lines, { partId: "", qty: 1, salePrice: undefined }])}>Add another product</button>
+            <button type="button" className="btn-ghost" onClick={() => setLines([...lines, { partId: "", qty: 1, salePrice: undefined, pickLocation: "" }])}>Add another product</button>
             {parts.error && <p className="text-sm text-red-600">{(parts.error as Error).message}</p>}
             {!saveAsQuote && lines.some((l) => {
               const p = parts.data?.find((x) => x.id === l.partId);
@@ -379,6 +425,9 @@ export function OrderNew() {
         </aside>
       </div>
 
+      {lines.some((l) => l.partId && !l.pickLocation.trim()) && (
+        <p className="text-sm text-amber-800">Enter a stock location for each product line.</p>
+      )}
       {save.error && <p className="text-red-600">{(save.error as Error).message}</p>}
       <div className="doc-composer-actions">
         <button type="button" className="btn-ghost" onClick={() => setPreview(true)}>
