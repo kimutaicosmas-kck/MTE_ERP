@@ -180,18 +180,25 @@ export function OrderNew() {
 
       <div className="doc-composer-grid">
         <div className="space-y-4">
-          <label className="card flex cursor-pointer items-start gap-3">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={saveAsQuote}
-              onChange={(e) => setSaveAsQuote(e.target.checked)}
-            />
-            <span className="font-medium">Save as quote first</span>
-          </label>
+          <button
+            type="button"
+            className={`sale-quote-toggle${saveAsQuote ? " sale-quote-toggle--on" : ""}`}
+            onClick={() => setSaveAsQuote((v) => !v)}
+            aria-pressed={saveAsQuote}
+          >
+            <span className="sale-quote-toggle-box" aria-hidden>
+              {saveAsQuote ? "✓" : ""}
+            </span>
+            <span>
+              <span className="sale-quote-toggle-title">Save as quote first</span>
+              <span className="sale-quote-toggle-hint">Turn off to create a sales order directly</span>
+            </span>
+          </button>
 
-          <div className="card grid gap-3 sm:grid-cols-2">
-            <div>
+          <div className="sale-details-card">
+            <h2 className="sale-details-heading">Sale details</h2>
+
+            <div className="sale-details-field">
               <label htmlFor="order-customer">Customer</label>
               <MteSelect
                 id="order-customer"
@@ -201,63 +208,85 @@ export function OrderNew() {
                 options={customerOptions}
                 placeholder="Select customer…"
                 required
+                searchable
               />
+              {customer ? (
+                <p className="sale-details-meta">
+                  {customer.phone
+                    ? `Phone ${customer.phone}`
+                    : customer.email
+                      ? customer.email
+                      : "Customer selected — add phone in master data if needed."}
+                </p>
+              ) : (
+                <p className="sale-details-meta">Search or scroll to pick a customer.</p>
+              )}
             </div>
-            <div>
-              <label>How will they get it?</label>
-              <MteSelect
-                aria-label="Delivery method"
-                value={dispatchMethod}
-                onChange={setDispatchMethod}
-                allowEmpty={false}
-                options={[
-                  { value: "SHOP_COLLECT", label: "Customer collects from shop" },
-                  { value: "COURIER", label: "Send by courier" },
-                ]}
-              />
-            </div>
-            <div>
-              <label>How did they order?</label>
-              <MteSelect
-                aria-label="Order channel"
-                value={channel}
-                onChange={setChannel}
-                allowEmpty={false}
-                options={["SHOP", "PHONE", "FIELD", "EMAIL"].map((c) => ({ value: c, label: c }))}
-              />
-            </div>
-            <div>
-              <label>Customer PO / LPO</label>
-              <input value={lpo} onChange={(e) => setLpo(e.target.value)} placeholder="Optional" />
-            </div>
-            {(branches.data || []).length > 0 && (
-              <div>
-                <label>Shop / branch</label>
+
+            <div className="sale-details-row">
+              <div className="sale-details-field">
+                <label>How will they get it?</label>
                 <MteSelect
-                  aria-label="Shop branch"
-                  value={branchId}
-                  onChange={setBranchId}
-                  options={branchOptions}
-                  placeholder="Select branch…"
+                  aria-label="Delivery method"
+                  value={dispatchMethod}
+                  onChange={setDispatchMethod}
+                  allowEmpty={false}
+                  options={[
+                    { value: "SHOP_COLLECT", label: "Customer collects from shop" },
+                    { value: "COURIER", label: "Send by courier" },
+                  ]}
                 />
               </div>
-            )}
-            <div className={saveAsQuote ? "" : "sm:col-span-2"}>
-              <label>Store / warehouse <span className="text-red-600">*</span></label>
-              <MteSelect
-                aria-label="Store or warehouse"
-                value={warehouseSiteId}
-                onChange={setWarehouseSiteId}
-                options={storeOptions}
-                placeholder={warehouses.isLoading ? "Loading stores…" : "Select store…"}
-                required
-              />
-              <p className="mt-0.5 text-[11px] text-stone-500">
-                Overall store for this sale. Enter each item&apos;s bin location on the product lines below.
-              </p>
+              <div className="sale-details-field">
+                <label>How did they order?</label>
+                <MteSelect
+                  aria-label="Order channel"
+                  value={channel}
+                  onChange={setChannel}
+                  allowEmpty={false}
+                  options={["SHOP", "PHONE", "FIELD", "EMAIL"].map((c) => ({ value: c, label: c }))}
+                />
+              </div>
             </div>
-            {saveAsQuote && (
-              <div>
+
+            <div className="sale-details-row">
+              <div className="sale-details-field">
+                <label>Customer PO / LPO</label>
+                <input
+                  className="sale-details-input"
+                  value={lpo}
+                  onChange={(e) => setLpo(e.target.value)}
+                  placeholder="Optional reference number"
+                />
+              </div>
+              {(branches.data || []).length > 0 ? (
+                <div className="sale-details-field">
+                  <label>Shop / branch</label>
+                  <MteSelect
+                    aria-label="Shop branch"
+                    value={branchId}
+                    onChange={setBranchId}
+                    options={branchOptions}
+                    placeholder="Select branch…"
+                    searchable
+                  />
+                </div>
+              ) : saveAsQuote ? (
+                <div className="sale-details-field">
+                  <label>Quote valid for</label>
+                  <MteSelect
+                    aria-label="Quote validity"
+                    value={String(validDays)}
+                    onChange={(v) => setValidDays(Number(v))}
+                    allowEmpty={false}
+                    options={[7, 14, 21, 30, 60].map((d) => ({ value: String(d), label: `${d} days` }))}
+                  />
+                </div>
+              ) : null}
+            </div>
+
+            {(branches.data || []).length > 0 && saveAsQuote ? (
+              <div className="sale-details-field sale-details-field--narrow">
                 <label>Quote valid for</label>
                 <MteSelect
                   aria-label="Quote validity"
@@ -267,7 +296,25 @@ export function OrderNew() {
                   options={[7, 14, 21, 30, 60].map((d) => ({ value: String(d), label: `${d} days` }))}
                 />
               </div>
-            )}
+            ) : null}
+
+            <div className="sale-details-field sale-details-field--store">
+              <label>
+                Store / warehouse <span className="sale-details-required">*</span>
+              </label>
+              <MteSelect
+                aria-label="Store or warehouse"
+                value={warehouseSiteId}
+                onChange={setWarehouseSiteId}
+                options={storeOptions}
+                placeholder={warehouses.isLoading ? "Loading stores…" : "Select store…"}
+                required
+                searchable
+              />
+              <p className="sale-details-meta">
+                Overall store for this sale. Enter each item&apos;s bin location on the product lines below.
+              </p>
+            </div>
           </div>
 
           {customerId && credit.data && credit.data.creditLimit > 0 && (
@@ -278,8 +325,8 @@ export function OrderNew() {
             </div>
           )}
 
-          <div className="card space-y-3">
-            <h2 className="font-semibold">Products</h2>
+          <div className="card sale-products-card space-y-3">
+            <h2 className="sale-details-heading">Products</h2>
             <div className="sale-line-stack">
             {lines.map((l, i) => {
               const catalog = parts.data?.find((x) => x.id === l.partId);

@@ -3893,6 +3893,168 @@ html.dark .master-record-badge { background: rgb(34 197 94 / 0.18); color: #86ef
 html.dark .master-record-bin { color: #e2e8f0; }
 .master-record-stack { display: flex; flex-direction: column; gap: 0.65rem; }
 
+/* New sale — header (customer, store, delivery) */
+.sale-quote-toggle {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-radius: 0.85rem;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  text-align: left;
+  box-shadow: 0 1px 0 rgb(15 23 42 / 0.04);
+  transition: border-color 0.15s, background 0.15s;
+}
+.sale-quote-toggle:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+.sale-quote-toggle--on {
+  border-color: #86efac;
+  background: rgb(34 197 94 / 0.06);
+}
+html.dark .sale-quote-toggle {
+  border-color: rgb(255 255 255 / 0.1);
+  background: #121a26;
+}
+html.dark .sale-quote-toggle--on {
+  border-color: rgb(34 197 94 / 0.35);
+  background: rgb(34 197 94 / 0.08);
+}
+.sale-quote-toggle-box {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  margin-top: 0.1rem;
+  border-radius: 0.35rem;
+  border: 2px solid #94a3b8;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #15803d;
+}
+.sale-quote-toggle--on .sale-quote-toggle-box {
+  border-color: #16a34a;
+  background: #22c55e;
+  color: #fff;
+}
+.sale-quote-toggle-title {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+html.dark .sale-quote-toggle-title { color: #f1f5f9; }
+.sale-quote-toggle-hint {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.78rem;
+  color: #64748b;
+  font-weight: 400;
+}
+.sale-details-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.85rem;
+  padding: 0.9rem 1rem 1rem;
+  background: #fff;
+  box-shadow: 0 1px 0 rgb(15 23 42 / 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+html.dark .sale-details-card {
+  border-color: rgb(255 255 255 / 0.1);
+  background: #121a26;
+}
+.sale-details-heading {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+html.dark .sale-details-heading { color: #f1f5f9; }
+.sale-products-card {
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 0 rgb(15 23 42 / 0.04);
+}
+html.dark .sale-products-card {
+  border-color: rgb(255 255 255 / 0.1);
+}
+.sale-details-field { min-width: 0; }
+.sale-details-card label,
+.sale-products-card label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #334155;
+  text-transform: none;
+  letter-spacing: 0;
+}
+html.dark .sale-details-card label,
+html.dark .sale-products-card label { color: #e2e8f0; }
+.sale-details-required { color: #dc2626; font-weight: 700; }
+.sale-details-meta {
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: #64748b;
+}
+.sale-details-row {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 520px) {
+  .sale-details-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.sale-details-field--narrow {
+  max-width: 14rem;
+}
+.sale-details-field--store {
+  padding-top: 0.35rem;
+  border-top: 1px solid #f1f5f9;
+}
+html.dark .sale-details-field--store {
+  border-top-color: rgb(255 255 255 / 0.06);
+}
+.sale-details-input {
+  width: 100%;
+  min-height: 2.75rem;
+  font-size: 0.875rem;
+}
+.sale-details-card .mte-select-trigger,
+.sale-products-card .mte-select-trigger {
+  min-height: 2.75rem;
+  font-size: 0.875rem;
+}
+.sale-details-card .mte-select-trigger > span:first-child,
+.sale-products-card .mte-select-trigger > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #0f172a;
+}
+html.dark .sale-details-card .mte-select-trigger > span:first-child,
+html.dark .sale-products-card .mte-select-trigger > span:first-child {
+  color: #e2e8f0;
+}
+.sale-details-card .mte-select-trigger > span.text-slate-400,
+.sale-products-card .mte-select-trigger > span.text-slate-400,
+.sale-line-card .mte-select-trigger > span.text-slate-400 {
+  color: #64748b;
+}
+html.dark .sale-details-card .mte-select-trigger > span.text-slate-400,
+html.dark .sale-products-card .mte-select-trigger > span.text-slate-400,
+html.dark .sale-line-card .mte-select-trigger > span.text-slate-400 {
+  color: #94a3b8;
+}
+
 /* New sale — product lines (readable full-width fields) */
 .sale-line-stack {
   display: flex;
