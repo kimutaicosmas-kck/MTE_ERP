@@ -99,7 +99,7 @@ export function OrderDetail() {
             {o.tracking ? ` · ${o.tracking}` : ""}
           </p>
           {o.style?.saleLocation ? (
-            <p className="text-sm font-medium text-stone-600">Sale location: {o.style.saleLocation}</p>
+            <p className="text-sm font-medium text-stone-600">Store / warehouse: {o.style.saleLocation}</p>
           ) : null}
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">

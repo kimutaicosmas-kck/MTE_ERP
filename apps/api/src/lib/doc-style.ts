@@ -9,7 +9,7 @@ export type DocStyle = {
   validDays?: number;
   intro?: string;
   notes?: string;
-  /** Customer site / yard / delivery point captured at sale time. */
+  /** Store / warehouse where stock is issued from. */
   saleLocation?: string;
 };
 

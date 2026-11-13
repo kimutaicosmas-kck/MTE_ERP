@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Eye, Trash2 } from "lucide-react";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { DocPaper } from "../components/DocPaper";
 import { DocPreview } from "../components/DocPreview";
@@ -9,6 +9,13 @@ import { MasterRecordCol, MasterRecordPrimary, MasterRecordRow } from "../compon
 import { MteSelect, PageHeader, mapSelectOptions } from "../components/ui";
 import { api, money } from "../lib/api";
 import type { DocModel } from "../lib/doc-style";
+import type { WarehouseTree } from "../lib/warehouse-bins";
+
+function storeLocationLabel(site: WarehouseTree) {
+  const bits = [site.name, `(${site.code})`];
+  if (site.address) bits.push(`— ${site.address}`);
+  return bits.join(" ");
+}
 
 export function OrderNew() {
   const nav = useNavigate();
@@ -23,23 +30,29 @@ export function OrderNew() {
   const [validDays, setValidDays] = useState(14);
   const [intro, setIntro] = useState("");
   const [branchId, setBranchId] = useState("");
-  const [saleLocation, setSaleLocation] = useState("");
+  const [warehouseSiteId, setWarehouseSiteId] = useState("");
   const [lines, setLines] = useState([{ partId: "", qty: 1, salePrice: undefined as number | undefined }]);
   const branches = useQuery({
     queryKey: ["branches"],
     queryFn: () => api<{ id: string; name: string; code: string }[]>("/api/settings/branches"),
   });
+  const warehouses = useQuery({
+    queryKey: ["warehouses"],
+    queryFn: () => api<WarehouseTree[]>("/api/inventory/warehouses"),
+  });
   const [preview, setPreview] = useState(false);
 
   const save = useMutation({
     mutationFn: async (asQuote: boolean) => {
+      const site = warehouses.data?.find((w) => w.id === warehouseSiteId);
+      if (!site) throw new Error("Select the store or warehouse where stock is held");
       const o = await api<{ id: string; offline?: boolean }>("/api/orders", {
         method: "POST",
         body: JSON.stringify({
           channel,
           customerId,
           branchId: branchId || undefined,
-          saleLocation: saleLocation.trim(),
+          saleLocation: storeLocationLabel(site),
           dispatchMethod,
           lpo: lpo || undefined,
           validDays: asQuote ? validDays : undefined,
@@ -119,12 +132,19 @@ export function OrderNew() {
     () => mapSelectOptions(branches.data || [], (b) => b.id, (b) => b.name, (b) => b.code),
     [branches.data],
   );
+  const storeOptions = useMemo(
+    () => mapSelectOptions(warehouses.data || [], (s) => s.id, (s) => s.name, (s) => `${s.code}${s.address ? ` · ${s.address}` : ""}`),
+    [warehouses.data],
+  );
+
+  useEffect(() => {
+    if (warehouseSiteId || !warehouses.data?.length) return;
+    if (warehouses.data.length === 1) setWarehouseSiteId(warehouses.data[0].id);
+  }, [warehouses.data, warehouseSiteId]);
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!saleLocation.trim()) {
-      return;
-    }
+    if (!warehouseSiteId) return;
     save.mutate(saveAsQuote);
   }
 
@@ -201,15 +221,18 @@ export function OrderNew() {
               </div>
             )}
             <div className={saveAsQuote ? "" : "sm:col-span-2"}>
-              <label>Sale location <span className="text-red-600">*</span></label>
-              <input
-                value={saleLocation}
-                onChange={(e) => setSaleLocation(e.target.value)}
-                placeholder="Customer site, yard, project, or delivery point"
+              <label>Store / warehouse <span className="text-red-600">*</span></label>
+              <MteSelect
+                aria-label="Store or warehouse"
+                value={warehouseSiteId}
+                onChange={setWarehouseSiteId}
+                options={storeOptions}
+                placeholder={warehouses.isLoading ? "Loading stores…" : "Select store…"}
                 required
-                aria-label="Sale location"
               />
-              <p className="mt-0.5 text-[11px] text-stone-500">Required — where the customer collects or receives goods.</p>
+              <p className="mt-0.5 text-[11px] text-stone-500">
+                Where this stock is held and will be picked from (same bins shown on each product line).
+              </p>
             </div>
             {saveAsQuote && (
               <div>
@@ -286,7 +309,7 @@ export function OrderNew() {
                   <MasterRecordCol label="Category">
                     {catalog ? <span className="master-record-badge">{catalog.category}</span> : <span className="text-xs text-stone-400">—</span>}
                   </MasterRecordCol>
-                  <MasterRecordCol label="Pick from">
+                  <MasterRecordCol label="Bin in store">
                     {catalog ? <span className="master-record-bin">{catalog.binLocation}</span> : <span className="text-xs text-stone-400">—</span>}
                   </MasterRecordCol>
                   <MasterRecordCol label="Qty">

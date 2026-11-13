@@ -566,7 +566,7 @@ function ProductForm({ product, onClose }: { product?: Product; onClose: () => v
               aria-label="Category"
             />
           </MasterRecordCol>
-          <MasterRecordCol label="Warehouse bin">
+          <MasterRecordCol label="Product location (bin)">
             {binOptions.length > 0 ? (
               <MteSelect
                 aria-label="Warehouse bin"
