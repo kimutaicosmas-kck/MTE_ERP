@@ -3893,6 +3893,118 @@ html.dark .master-record-badge { background: rgb(34 197 94 / 0.18); color: #86ef
 html.dark .master-record-bin { color: #e2e8f0; }
 .master-record-stack { display: flex; flex-direction: column; gap: 0.65rem; }
 
+/* New sale — product lines (readable full-width fields) */
+.sale-line-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.sale-line-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.85rem;
+  padding: 0.9rem 1rem;
+  background: #fff;
+  box-shadow: 0 1px 0 rgb(15 23 42 / 0.04);
+}
+html.dark .sale-line-card {
+  border-color: rgb(255 255 255 / 0.1);
+  background: #121a26;
+}
+.sale-line-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+.sale-line-num {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+.sale-line-remove {
+  border-radius: 0.5rem;
+  padding: 0.35rem;
+  color: #94a3b8;
+}
+.sale-line-remove:hover {
+  background: #f1f5f9;
+  color: #b91c1c;
+}
+html.dark .sale-line-remove:hover {
+  background: rgb(255 255 255 / 0.08);
+}
+.sale-line-field { min-width: 0; }
+.sale-line-card label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #334155;
+  text-transform: none;
+  letter-spacing: 0;
+}
+html.dark .sale-line-card label { color: #e2e8f0; }
+.sale-line-meta {
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: #64748b;
+}
+.sale-line-badge {
+  display: inline-block;
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.35rem;
+  background: rgb(34 197 94 / 0.12);
+  color: #15803d;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+html.dark .sale-line-badge {
+  background: rgb(34 197 94 / 0.18);
+  color: #86efac;
+}
+.sale-line-row {
+  display: grid;
+  gap: 0.65rem 0.75rem;
+  margin-top: 0.85rem;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 520px) {
+  .sale-line-row {
+    grid-template-columns: minmax(0, 1fr) 4.75rem 6.75rem;
+    align-items: end;
+  }
+}
+.sale-line-grow { min-width: 0; }
+.sale-line-qty input,
+.sale-line-price input {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.sale-line-hint {
+  margin-top: 0.25rem;
+  font-size: 0.68rem;
+  color: #64748b;
+  text-align: right;
+}
+.sale-line-card .mte-select-trigger {
+  min-height: 2.75rem;
+  font-size: 0.875rem;
+}
+.sale-line-card .mte-select-trigger > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-composer .mte-select-popover {
+  min-width: min(22rem, 92vw);
+  max-width: min(28rem, 96vw);
+}
+
 .product-master-table th {
   font-size: 0.72rem;
   font-weight: 600;

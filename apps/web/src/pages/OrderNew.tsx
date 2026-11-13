@@ -4,7 +4,6 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { DocPaper } from "../components/DocPaper";
 import { DocPreview } from "../components/DocPreview";
-import { MasterRecordCol, MasterRecordPrimary, MasterRecordRow } from "../components/MasterRecordRow";
 import { MteSelect, PageHeader, mapSelectOptions } from "../components/ui";
 import { api, money } from "../lib/api";
 import type { DocModel } from "../lib/doc-style";
@@ -281,116 +280,129 @@ export function OrderNew() {
 
           <div className="card space-y-3">
             <h2 className="font-semibold">Products</h2>
-            <div className="master-record-stack">
+            <div className="sale-line-stack">
             {lines.map((l, i) => {
               const catalog = parts.data?.find((x) => x.id === l.partId);
               const unit = lineUnitPrice(l);
               const uplift = catalog && unit > catalog.salePrice ? unit - catalog.salePrice : 0;
               return (
-                <MasterRecordRow key={i} className="master-record-row-sale">
-                  <MasterRecordPrimary
-                    title={
-                      <MteSelect
-                        aria-label="Product"
-                        value={l.partId}
-                        onChange={(partId) => setLinePart(i, partId)}
-                        options={partOptions}
-                        placeholder="Choose product…"
-                        required={i === 0}
-                      />
-                    }
-                    meta={
-                      catalog ? (
-                        <>
-                          <span className="font-mono text-xs">{catalog.sku}</span>
-                          <span aria-hidden>·</span>
-                          <span>{catalog.oemNumber}</span>
-                        </>
-                      ) : (
-                        <span className="text-xs">Select a product</span>
-                      )
-                    }
-                  />
-                  <MasterRecordCol label="Category">
-                    {catalog ? <span className="master-record-badge">{catalog.category}</span> : <span className="text-xs text-stone-400">—</span>}
-                  </MasterRecordCol>
-                  <MasterRecordCol label="Item location">
-                    {binOptions.length > 0 ? (
-                      <MteSelect
-                        aria-label="Item stock location"
-                        value={l.pickLocation}
-                        onChange={(pickLocation) => {
-                          const next = [...lines];
-                          next[i] = { ...next[i], pickLocation };
-                          setLines(next);
-                        }}
-                        options={binOptions}
-                        placeholder={catalog?.binLocation || "Select bin…"}
-                        required={Boolean(l.partId)}
-                      />
+                <div key={i} className="sale-line-card">
+                  <div className="sale-line-card-head">
+                    <span className="sale-line-num">Line {i + 1}</span>
+                    {lines.length > 1 && (
+                      <button
+                        type="button"
+                        className="sale-line-remove"
+                        aria-label="Remove line"
+                        onClick={() => setLines(lines.filter((_, j) => j !== i))}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="sale-line-field">
+                    <label>Product</label>
+                    <MteSelect
+                      aria-label="Product"
+                      value={l.partId}
+                      onChange={(partId) => setLinePart(i, partId)}
+                      options={partOptions}
+                      placeholder="Choose product…"
+                      required={i === 0}
+                      searchable
+                    />
+                    {catalog ? (
+                      <p className="sale-line-meta">
+                        <span className="font-mono">{catalog.sku}</span>
+                        <span aria-hidden> · </span>
+                        {catalog.oemNumber}
+                        <span aria-hidden> · </span>
+                        <span className="sale-line-badge">{catalog.category}</span>
+                        <span aria-hidden> · </span>
+                        {catalog.qtyOnHand} in stock
+                        {catalog.binLocation ? (
+                          <>
+                            <span aria-hidden> · </span>
+                            Bin {catalog.binLocation}
+                          </>
+                        ) : null}
+                      </p>
                     ) : (
+                      <p className="sale-line-meta">Search or scroll the list to choose a product.</p>
+                    )}
+                  </div>
+                  <div className="sale-line-row">
+                    <div className="sale-line-grow">
+                      <label>Item location</label>
+                      {binOptions.length > 0 ? (
+                        <MteSelect
+                          aria-label="Item stock location"
+                          value={l.pickLocation}
+                          onChange={(pickLocation) => {
+                            const next = [...lines];
+                            next[i] = { ...next[i], pickLocation };
+                            setLines(next);
+                          }}
+                          options={binOptions}
+                          placeholder={catalog?.binLocation || "Select warehouse bin…"}
+                          required={Boolean(l.partId)}
+                          searchable
+                        />
+                      ) : (
+                        <input
+                          value={l.pickLocation}
+                          onChange={(e) => {
+                            const next = [...lines];
+                            next[i] = { ...next[i], pickLocation: e.target.value };
+                            setLines(next);
+                          }}
+                          placeholder={catalog?.binLocation || "e.g. MAIN-A-12-03"}
+                          required={Boolean(l.partId)}
+                          aria-label="Item stock location"
+                        />
+                      )}
+                    </div>
+                    <div className="sale-line-qty">
+                      <label>Qty</label>
                       <input
-                        className="master-record-bin"
-                        value={l.pickLocation}
+                        type="number"
+                        min={1}
+                        aria-label="Quantity"
+                        value={l.qty}
                         onChange={(e) => {
                           const next = [...lines];
-                          next[i] = { ...next[i], pickLocation: e.target.value };
+                          next[i].qty = Number(e.target.value);
                           setLines(next);
                         }}
-                        placeholder={catalog?.binLocation || "e.g. MAIN-A-12-03"}
-                        required={Boolean(l.partId)}
-                        aria-label="Item stock location"
                       />
-                    )}
-                  </MasterRecordCol>
-                  <MasterRecordCol label="Qty">
-                    <input
-                      type="number"
-                      min={1}
-                      aria-label="Quantity"
-                      value={l.qty}
-                      onChange={(e) => {
-                        const next = [...lines];
-                        next[i].qty = Number(e.target.value);
-                        setLines(next);
-                      }}
-                    />
-                  </MasterRecordCol>
-                  <MasterRecordCol label="Unit price">
-                    <input
-                      type="number"
-                      min={0}
-                      step={1}
-                      aria-label="Unit price"
-                      placeholder={catalog ? String(catalog.salePrice) : "Price"}
-                      value={l.salePrice ?? ""}
-                      onChange={(e) => {
-                        const next = [...lines];
-                        const v = e.target.value;
-                        next[i].salePrice = v === "" ? undefined : Number(v);
-                        setLines(next);
-                      }}
-                    />
-                    {catalog && uplift > 0 && (
-                      <p className="mt-0.5 text-[10px] text-stone-500">+{money(uplift)}/unit</p>
-                    )}
-                  </MasterRecordCol>
-                  {lines.length > 1 && (
-                    <button
-                      type="button"
-                      className="header-icon-btn self-center text-stone-400"
-                      aria-label="Remove line"
-                      onClick={() => setLines(lines.filter((_, j) => j !== i))}
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  )}
-                </MasterRecordRow>
+                    </div>
+                    <div className="sale-line-price">
+                      <label>Unit price</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        aria-label="Unit price"
+                        placeholder={catalog ? String(catalog.salePrice) : "Catalog price"}
+                        value={l.salePrice ?? ""}
+                        onChange={(e) => {
+                          const next = [...lines];
+                          const v = e.target.value;
+                          next[i].salePrice = v === "" ? undefined : Number(v);
+                          setLines(next);
+                        }}
+                      />
+                      {catalog && uplift > 0 && (
+                        <p className="sale-line-hint">+{money(uplift)}/unit above list</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
               );
             })}
             </div>
             <p className="text-xs text-stone-500">
-              Leave unit price blank to use the catalog price. Stock location shows which bin warehouse will pick from.
+              Leave unit price blank to use the catalog price. Pick the bin where stock will be taken from.
             </p>
             <button type="button" className="btn-ghost" onClick={() => setLines([...lines, { partId: "", qty: 1, salePrice: undefined, pickLocation: "" }])}>Add another product</button>
             {parts.error && <p className="text-sm text-red-600">{(parts.error as Error).message}</p>}
