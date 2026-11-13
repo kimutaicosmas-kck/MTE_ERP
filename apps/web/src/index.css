@@ -3806,3 +3806,86 @@ html.dark .assistant-compose { border-color: rgb(255 255 255 / 0.08); }
   padding: 0.45rem 0.75rem;
   font-size: 0.875rem;
 }
+
+/* Master record rows — product entry & sales lines (horizontal on md+) */
+.master-record-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.65rem 0.75rem;
+  align-items: start;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #e8edf3;
+  border-radius: 0.75rem;
+  background: linear-gradient(180deg, #fff 0%, #fafbfc 100%);
+  box-shadow: 0 1px 0 rgb(15 23 42 / 0.04);
+}
+html.dark .master-record-row {
+  border-color: rgb(255 255 255 / 0.1);
+  background: #121a26;
+}
+@media (min-width: 768px) {
+  .master-record-row {
+    grid-template-columns: minmax(11rem, 1.5fr) minmax(6.5rem, 0.95fr) minmax(5.5rem, 0.8fr) minmax(4.5rem, 0.65fr) minmax(4.5rem, 0.65fr) auto;
+    align-items: center;
+  }
+  .master-record-row-sale {
+    grid-template-columns: minmax(11rem, 1.45fr) minmax(6rem, 0.85fr) minmax(5rem, 0.7fr) minmax(3.5rem, 0.5fr) minmax(4.5rem, 0.65fr) auto;
+  }
+  .master-record-row-compact {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.master-record-primary { min-width: 0; }
+.master-record-title input,
+.master-record-title .mte-select-trigger {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.master-record-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  margin-top: 0.35rem;
+  font-size: 0.78rem;
+  color: #64748b;
+}
+.master-record-meta input {
+  font-size: 0.78rem;
+  padding: 0.35rem 0.5rem;
+  min-width: 5rem;
+}
+.master-record-col { min-width: 0; }
+.master-record-label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.master-record-field input,
+.master-record-field .mte-select-wrap {
+  width: 100%;
+}
+.master-record-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 0.45rem;
+  background: rgb(34 197 94 / 0.12);
+  color: #15803d;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+html.dark .master-record-badge { background: rgb(34 197 94 / 0.18); color: #86efac; }
+.master-record-bin {
+  font-family: ui-monospace, monospace;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+html.dark .master-record-bin { color: #e2e8f0; }
+.master-record-stack { display: flex; flex-direction: column; gap: 0.65rem; }

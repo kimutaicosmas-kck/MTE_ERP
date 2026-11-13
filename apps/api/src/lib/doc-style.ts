@@ -9,6 +9,8 @@ export type DocStyle = {
   validDays?: number;
   intro?: string;
   notes?: string;
+  /** Customer site / yard / delivery point captured at sale time. */
+  saleLocation?: string;
 };
 
 export function packDocStyle(style: DocStyle) {
@@ -17,6 +19,7 @@ export function packDocStyle(style: DocStyle) {
     validDays: style.validDays || undefined,
     intro: style.intro || "",
     notes: style.notes || "",
+    saleLocation: style.saleLocation || undefined,
   });
 }
 
@@ -31,6 +34,7 @@ export function unpackDocStyle(raw?: string | null): DocStyle {
         validDays: parsed.validDays ? Number(parsed.validDays) : undefined,
         intro: typeof parsed.intro === "string" ? parsed.intro : "",
         notes: typeof parsed.notes === "string" ? parsed.notes : "",
+        saleLocation: typeof parsed.saleLocation === "string" ? parsed.saleLocation : "",
       };
     }
   } catch {

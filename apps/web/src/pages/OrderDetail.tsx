@@ -98,6 +98,9 @@ export function OrderDetail() {
             {String(o.dispatchMethod || "").replace(/_/g, " ").toLowerCase()}
             {o.tracking ? ` · ${o.tracking}` : ""}
           </p>
+          {o.style?.saleLocation ? (
+            <p className="text-sm font-medium text-stone-600">Sale location: {o.style.saleLocation}</p>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <span className={`badge ${

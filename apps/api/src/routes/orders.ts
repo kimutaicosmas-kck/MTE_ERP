@@ -16,7 +16,7 @@ import { issueInvoiceForOrder, refreshInvoiceStatus } from "../lib/invoice.js";
 import { markupTotal } from "../lib/markup-commission.js";
 import { packDocStyle, shareTokenFor, unpackDocStyle } from "../lib/doc-style.js";
 import { assertCreditAllowed } from "../lib/credit.js";
-import { zEntityId, zOptionalText } from "../lib/sanitize.js";
+import { zEntityId, zOptionalText, zText } from "../lib/sanitize.js";
 import { canDispatchTransition, DISPATCH_METHODS, DISPATCH_PRIORITIES, isDispatchStep } from "../lib/dispatch-workflow.js";
 import { orderMoneyTotals } from "../lib/vat-totals.js";
 
@@ -179,6 +179,8 @@ ordersRouter.post("/:id/files", async (req, res) => {
 const createBody = z.object({
   channel: z.enum(["FIELD", "SHOP", "PHONE", "EMAIL"]),
   customerId: zEntityId(),
+  branchId: zEntityId().optional(),
+  saleLocation: zText(200),
   dispatchMethod: z.enum(["SHOP_COLLECT", "COURIER"]).optional(),
   tracking: zOptionalText(80),
   lpo: zOptionalText(80),
@@ -206,6 +208,7 @@ function packedNotes(data: z.infer<typeof createBody>) {
     validDays: data.validDays,
     intro: data.intro || data.notes || "",
     notes: data.notes || data.intro || "",
+    saleLocation: data.saleLocation,
   });
 }
 
@@ -242,7 +245,10 @@ ordersRouter.post("/", async (req, res) => {
         channel: body.data.channel,
         customerId: body.data.customerId,
         salespersonId: req.user!.id,
-        branchId: req.user!.role ? (await prisma.user.findUnique({ where: { id: req.user!.id } }))?.branchId : undefined,
+        branchId:
+          body.data.branchId ||
+          (req.user!.role ? (await prisma.user.findUnique({ where: { id: req.user!.id } }))?.branchId : undefined) ||
+          undefined,
         dispatchMethod: body.data.dispatchMethod || "SHOP_COLLECT",
         tracking: body.data.tracking,
         lpo: body.data.lpo,
@@ -289,6 +295,7 @@ ordersRouter.patch("/:id", async (req, res) => {
     data: {
       channel: body.data.channel,
       customerId: body.data.customerId,
+      branchId: body.data.branchId || order.branchId,
       dispatchMethod: body.data.dispatchMethod || order.dispatchMethod,
       tracking: body.data.tracking,
       lpo: body.data.lpo,

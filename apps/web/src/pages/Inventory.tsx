@@ -8,6 +8,7 @@ import { ImportButton } from "../components/ImportButton";
 import { Register, useListSort } from "../components/register";
 import { MobileFilters } from "../components/filters";
 import { EmptyRow, ExportButtons, Modal, PageHeader, Pager, Stat, StatGrid, useCreateOpen, useQueryState } from "../components/ui";
+import { MasterRecordCol, MasterRecordPrimary, MasterRecordRow } from "../components/MasterRecordRow";
 import { ModuleReportsPanel } from "../components/ModuleReportsPanel";
 import { InvDash, InventoryMovements, InventoryOverview, InventoryWarehouses } from "./inventory/InventoryPanels";
 import { canModule } from "../lib/access";
@@ -494,7 +495,7 @@ function ProductForm({ product, onClose }: { product?: Product; onClose: () => v
   });
 
   return (
-    <Modal onClose={onClose}>
+    <Modal wide className="!max-w-[min(96vw,56rem)]" onClose={onClose}>
       <form
         className="space-y-3"
         onSubmit={(e) => {
@@ -503,44 +504,101 @@ function ProductForm({ product, onClose }: { product?: Product; onClose: () => v
         }}
       >
         <h2 className="text-xl font-semibold tracking-tight">{product ? "Edit product" : "New product"}</h2>
-        {product && <p className="text-sm text-stone-500">{product.sku}</p>}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {!product && (
-            <div><label>SKU</label><input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} required /></div>
-          )}
-          <div className={product ? "sm:col-span-2" : ""}><label>Product name</label><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></div>
-          <div><label>Part number</label><input value={form.oemNumber} onChange={(e) => setForm({ ...form, oemNumber: e.target.value })} required /></div>
-          <div><label>Category</label><input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} required /></div>
-          <div><label>Bin</label><input value={form.binLocation} onChange={(e) => setForm({ ...form, binLocation: e.target.value })} required /></div>
-          <div><label>Low stock level</label><input type="number" value={form.reorderLevel} onChange={(e) => setForm({ ...form, reorderLevel: Number(e.target.value) })} /></div>
+        <p className="text-sm text-stone-500">Enter the product on one row — name, category, stock location, and prices.</p>
+        <MasterRecordRow>
+          <MasterRecordPrimary
+            title={
+              <input
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="Product name"
+                required
+                aria-label="Product name"
+              />
+            }
+            meta={
+              <>
+                {!product ? (
+                  <input
+                    value={form.sku}
+                    onChange={(e) => setForm({ ...form, sku: e.target.value })}
+                    placeholder="SKU"
+                    required
+                    aria-label="SKU"
+                  />
+                ) : (
+                  <span className="font-mono text-xs">{product.sku}</span>
+                )}
+                <span aria-hidden>·</span>
+                <input
+                  value={form.oemNumber}
+                  onChange={(e) => setForm({ ...form, oemNumber: e.target.value })}
+                  placeholder="OEM / part no."
+                  required
+                  aria-label="Part number"
+                />
+              </>
+            }
+          />
+          <MasterRecordCol label="Category">
+            <input
+              className="master-record-badge"
+              value={form.category}
+              onChange={(e) => setForm({ ...form, category: e.target.value })}
+              required
+              aria-label="Category"
+            />
+          </MasterRecordCol>
+          <MasterRecordCol label="Stock location">
+            <input
+              className="master-record-bin"
+              value={form.binLocation}
+              onChange={(e) => setForm({ ...form, binLocation: e.target.value })}
+              placeholder="e.g. A-12-03"
+              required
+              aria-label="Stock location"
+            />
+          </MasterRecordCol>
           {user?.role !== "SALES" && (
-            <div><label>Unit cost</label><input type="number" value={form.cost} onChange={(e) => setForm({ ...form, cost: Number(e.target.value) })} /></div>
+            <MasterRecordCol label="Unit cost">
+              <input type="number" min={0} value={form.cost} onChange={(e) => setForm({ ...form, cost: Number(e.target.value) })} aria-label="Unit cost" />
+            </MasterRecordCol>
           )}
-          <div><label>Selling price</label><input type="number" value={form.salePrice} onChange={(e) => setForm({ ...form, salePrice: Number(e.target.value) })} /></div>
-          {product && (
-            <div>
-              <label>On hand</label>
+          <MasterRecordCol label="Sell price">
+            <input type="number" min={0} value={form.salePrice} onChange={(e) => setForm({ ...form, salePrice: Number(e.target.value) })} required aria-label="Selling price" />
+          </MasterRecordCol>
+          {product ? (
+            <MasterRecordCol label="On hand">
               <input
                 type="number"
                 value={form.qtyOnHand}
                 disabled={!canQty}
                 onChange={(e) => setForm({ ...form, qtyOnHand: Number(e.target.value) })}
+                aria-label="Quantity on hand"
               />
-            </div>
+            </MasterRecordCol>
+          ) : (
+            <MasterRecordCol label="Low stock">
+              <input type="number" min={0} value={form.reorderLevel} onChange={(e) => setForm({ ...form, reorderLevel: Number(e.target.value) })} aria-label="Reorder level" />
+            </MasterRecordCol>
           )}
-          {!product && (
-            <>
-              <div><label>Machine brand</label><input value={form.machineBrand} onChange={(e) => setForm({ ...form, machineBrand: e.target.value })} /></div>
-              <div><label>Machine model</label><input value={form.machineModel} onChange={(e) => setForm({ ...form, machineModel: e.target.value })} /></div>
-            </>
-          )}
-          {product && canQty && Number(form.qtyOnHand) !== product.qtyOnHand && (
-            <div className="sm:col-span-2">
-              <label>Qty change reason</label>
-              <input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} required placeholder="Why is the quantity changing?" />
-            </div>
-          )}
-        </div>
+        </MasterRecordRow>
+        {!product && (
+          <MasterRecordRow className="master-record-row-compact">
+            <MasterRecordCol label="Machine brand" wide>
+              <input value={form.machineBrand} onChange={(e) => setForm({ ...form, machineBrand: e.target.value })} aria-label="Machine brand" />
+            </MasterRecordCol>
+            <MasterRecordCol label="Machine model" wide>
+              <input value={form.machineModel} onChange={(e) => setForm({ ...form, machineModel: e.target.value })} placeholder="Optional" aria-label="Machine model" />
+            </MasterRecordCol>
+          </MasterRecordRow>
+        )}
+        {product && canQty && Number(form.qtyOnHand) !== product.qtyOnHand && (
+          <div>
+            <label>Qty change reason</label>
+            <input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} required placeholder="Why is the quantity changing?" />
+          </div>
+        )}
         {product && user?.role !== "SALES" && (
           <div className="space-y-2 border-t pt-3">
             <h3 className="font-semibold">Serial numbers</h3>

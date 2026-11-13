@@ -1,10 +1,11 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Eye } from "lucide-react";
+import { Eye, Trash2 } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { DocPaper } from "../components/DocPaper";
 import { DocPreview } from "../components/DocPreview";
 import { MachinePartSearch } from "../components/MachinePartSearch";
+import { MasterRecordCol, MasterRecordPrimary, MasterRecordRow } from "../components/MasterRecordRow";
 import { MteSelect, PageHeader, mapSelectOptions } from "../components/ui";
 import { api, money } from "../lib/api";
 import type { DocModel } from "../lib/doc-style";
@@ -21,7 +22,13 @@ export function OrderNew() {
   const [lpo, setLpo] = useState("");
   const [validDays, setValidDays] = useState(14);
   const [intro, setIntro] = useState("");
+  const [branchId, setBranchId] = useState("");
+  const [saleLocation, setSaleLocation] = useState("");
   const [lines, setLines] = useState([{ partId: "", qty: 1, salePrice: undefined as number | undefined }]);
+  const branches = useQuery({
+    queryKey: ["branches"],
+    queryFn: () => api<{ id: string; name: string; code: string }[]>("/api/settings/branches"),
+  });
   const [preview, setPreview] = useState(false);
 
   const save = useMutation({
@@ -31,6 +38,8 @@ export function OrderNew() {
         body: JSON.stringify({
           channel,
           customerId,
+          branchId: branchId || undefined,
+          saleLocation: saleLocation.trim(),
           dispatchMethod,
           lpo: lpo || undefined,
           validDays: asQuote ? validDays : undefined,
@@ -106,8 +115,16 @@ export function OrderNew() {
       .filter(Boolean) as DocModel["lines"],
   }), [saveAsQuote, customer, company, intro, validDays, lpo, dispatchMethod, lines, parts.data]);
 
+  const branchOptions = useMemo(
+    () => mapSelectOptions(branches.data || [], (b) => b.id, (b) => b.name, (b) => b.code),
+    [branches.data],
+  );
+
   function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (!saleLocation.trim()) {
+      return;
+    }
     save.mutate(saveAsQuote);
   }
 
@@ -171,6 +188,29 @@ export function OrderNew() {
               <label>Customer PO / LPO</label>
               <input value={lpo} onChange={(e) => setLpo(e.target.value)} placeholder="Optional" />
             </div>
+            {(branches.data || []).length > 0 && (
+              <div>
+                <label>Shop / branch</label>
+                <MteSelect
+                  aria-label="Shop branch"
+                  value={branchId}
+                  onChange={setBranchId}
+                  options={branchOptions}
+                  placeholder="Select branch…"
+                />
+              </div>
+            )}
+            <div className={saveAsQuote ? "" : "sm:col-span-2"}>
+              <label>Sale location <span className="text-red-600">*</span></label>
+              <input
+                value={saleLocation}
+                onChange={(e) => setSaleLocation(e.target.value)}
+                placeholder="Customer site, yard, project, or delivery point"
+                required
+                aria-label="Sale location"
+              />
+              <p className="mt-0.5 text-[11px] text-stone-500">Required — where the customer collects or receives goods.</p>
+            </div>
             {saveAsQuote && (
               <div>
                 <label>Quote valid for</label>
@@ -209,37 +249,60 @@ export function OrderNew() {
 
           <div className="card space-y-3">
             <h2 className="font-semibold">Products</h2>
+            <div className="master-record-stack">
             {lines.map((l, i) => {
               const catalog = parts.data?.find((x) => x.id === l.partId);
               const unit = lineUnitPrice(l);
               const uplift = catalog && unit > catalog.salePrice ? unit - catalog.salePrice : 0;
               return (
-                <div key={i} className="grid grid-cols-1 gap-2 sm:grid-cols-4">
-                  <MteSelect
-                    className="sm:col-span-2"
-                    aria-label="Product"
-                    value={l.partId}
-                    onChange={(partId) => {
-                      const next = [...lines];
-                      next[i] = { ...next[i], partId, salePrice: undefined };
-                      setLines(next);
-                    }}
-                    options={partOptions}
-                    placeholder="Choose product…"
-                    required={i === 0}
+                <MasterRecordRow key={i} className="master-record-row-sale">
+                  <MasterRecordPrimary
+                    title={
+                      <MteSelect
+                        aria-label="Product"
+                        value={l.partId}
+                        onChange={(partId) => {
+                          const next = [...lines];
+                          next[i] = { ...next[i], partId, salePrice: undefined };
+                          setLines(next);
+                        }}
+                        options={partOptions}
+                        placeholder="Choose product…"
+                        required={i === 0}
+                      />
+                    }
+                    meta={
+                      catalog ? (
+                        <>
+                          <span className="font-mono text-xs">{catalog.sku}</span>
+                          <span aria-hidden>·</span>
+                          <span>{catalog.oemNumber}</span>
+                        </>
+                      ) : (
+                        <span className="text-xs">Select a product</span>
+                      )
+                    }
                   />
-                  <input
-                    type="number"
-                    min={1}
-                    aria-label="Quantity"
-                    value={l.qty}
-                    onChange={(e) => {
-                      const next = [...lines];
-                      next[i].qty = Number(e.target.value);
-                      setLines(next);
-                    }}
-                  />
-                  <div>
+                  <MasterRecordCol label="Category">
+                    {catalog ? <span className="master-record-badge">{catalog.category}</span> : <span className="text-xs text-stone-400">—</span>}
+                  </MasterRecordCol>
+                  <MasterRecordCol label="Pick from">
+                    {catalog ? <span className="master-record-bin">{catalog.binLocation}</span> : <span className="text-xs text-stone-400">—</span>}
+                  </MasterRecordCol>
+                  <MasterRecordCol label="Qty">
+                    <input
+                      type="number"
+                      min={1}
+                      aria-label="Quantity"
+                      value={l.qty}
+                      onChange={(e) => {
+                        const next = [...lines];
+                        next[i].qty = Number(e.target.value);
+                        setLines(next);
+                      }}
+                    />
+                  </MasterRecordCol>
+                  <MasterRecordCol label="Unit price">
                     <input
                       type="number"
                       min={0}
@@ -254,18 +317,26 @@ export function OrderNew() {
                         setLines(next);
                       }}
                     />
-                    {catalog && (
-                      <p className="mt-0.5 text-[11px] text-stone-500">
-                        List {money(catalog.salePrice)}
-                        {uplift > 0 && <> · +{money(uplift)}/unit markup</>}
-                      </p>
+                    {catalog && uplift > 0 && (
+                      <p className="mt-0.5 text-[10px] text-stone-500">+{money(uplift)}/unit</p>
                     )}
-                  </div>
-                </div>
+                  </MasterRecordCol>
+                  {lines.length > 1 && (
+                    <button
+                      type="button"
+                      className="header-icon-btn self-center text-stone-400"
+                      aria-label="Remove line"
+                      onClick={() => setLines(lines.filter((_, j) => j !== i))}
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  )}
+                </MasterRecordRow>
               );
             })}
+            </div>
             <p className="text-xs text-stone-500">
-              Leave unit price blank to use the catalog price. Enter a higher price when the customer agrees to pay above list — sales commission on that uplift is calculated when the invoice is issued.
+              Leave unit price blank to use the catalog price. Stock location shows which bin warehouse will pick from.
             </p>
             <button type="button" className="btn-ghost" onClick={() => setLines([...lines, { partId: "", qty: 1, salePrice: undefined }])}>Add another product</button>
             {parts.error && <p className="text-sm text-red-600">{(parts.error as Error).message}</p>}
