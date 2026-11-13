@@ -4,7 +4,6 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { DocPaper } from "../components/DocPaper";
 import { DocPreview } from "../components/DocPreview";
-import { MachinePartSearch } from "../components/MachinePartSearch";
 import { MasterRecordCol, MasterRecordPrimary, MasterRecordRow } from "../components/MasterRecordRow";
 import { MteSelect, PageHeader, mapSelectOptions } from "../components/ui";
 import { api, money } from "../lib/api";
@@ -279,20 +278,6 @@ export function OrderNew() {
               {credit.data.blocked && <p className="mt-1 text-amber-800">Customer is at credit limit. Super Admin must approve new orders.</p>}
             </div>
           )}
-
-          <MachinePartSearch
-            compact
-            onPick={(p) => {
-              const empty = lines.findIndex((l) => !l.partId);
-              if (empty >= 0) {
-                const next = [...lines];
-                next[empty] = { partId: p.id, qty: 1, salePrice: undefined, pickLocation: p.binLocation || "" };
-                setLines(next);
-              } else {
-                setLines([...lines, { partId: p.id, qty: 1, salePrice: undefined, pickLocation: p.binLocation || "" }]);
-              }
-            }}
-          />
 
           <div className="card space-y-3">
             <h2 className="font-semibold">Products</h2>

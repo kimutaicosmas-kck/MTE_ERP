@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowDownToLine, ArrowUpFromLine, Boxes, Lock, Package, Plus, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { MachinePartSearch } from "../components/MachinePartSearch";
 import { ImportButton } from "../components/ImportButton";
 import { Register, useListSort } from "../components/register";
 import { MobileFilters } from "../components/filters";
@@ -229,7 +228,6 @@ export function Inventory() {
 
       {showCatalog && (
       <>
-      <MachinePartSearch onPick={(p) => user?.role !== "SALES" && setEdit(p as Product)} />
       <section className="suite-panel suite-panel-table module-list-suite overflow-hidden">
         <div className="module-list-toolbar">
           <label className="module-search-field">
