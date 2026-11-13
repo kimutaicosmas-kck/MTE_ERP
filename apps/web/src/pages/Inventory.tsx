@@ -7,7 +7,7 @@ import { CaptureField } from "../components/CaptureField";
 import { ImportButton } from "../components/ImportButton";
 import { Register, useListSort } from "../components/register";
 import { MobileFilters } from "../components/filters";
-import { EmptyRow, ExportButtons, Modal, PageHeader, Pager, Stat, StatGrid, useCreateOpen, useQueryState } from "../components/ui";
+import { EmptyRow, ExportButtons, Modal, MteSelect, PageHeader, Pager, Stat, StatGrid, mapSelectOptions, useCreateOpen, useQueryState } from "../components/ui";
 import { MasterRecordCol, MasterRecordPrimary, MasterRecordRow } from "../components/MasterRecordRow";
 import { ModuleReportsPanel } from "../components/ModuleReportsPanel";
 import { InvDash, InventoryMovements, InventoryOverview, InventoryWarehouses } from "./inventory/InventoryPanels";
@@ -15,6 +15,7 @@ import { canModule } from "../lib/access";
 import { api, money } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { usePager } from "../lib/pager";
+import { flattenWarehouseBins, type WarehouseTree } from "../lib/warehouse-bins";
 
 const INVENTORY_SECTIONS = [
   { id: "overview", label: "Dashboard" },
@@ -38,6 +39,7 @@ type Product = {
   name: string;
   category: string;
   binLocation: string;
+  warehouseBinId?: string | null;
   cost: number;
   salePrice: number;
   qtyOnHand: number;
@@ -417,6 +419,15 @@ function ProductForm({ product, onClose }: { product?: Product; onClose: () => v
   const { user } = useAuth();
   const qc = useQueryClient();
   const canQty = user?.role === "SUPER_ADMIN";
+  const warehouses = useQuery({
+    queryKey: ["warehouses"],
+    queryFn: () => api<WarehouseTree[]>("/api/inventory/warehouses"),
+  });
+  const binRows = useMemo(() => flattenWarehouseBins(warehouses.data || []), [warehouses.data]);
+  const binOptions = useMemo(
+    () => mapSelectOptions(binRows, (b) => b.id, (b) => b.path, (b) => b.hint),
+    [binRows],
+  );
   const serials = useQuery({
     queryKey: ["serials", product?.id],
     queryFn: () => api<{ id: string; code: string; status: string }[]>(`/api/parts/${product!.id}/serials`),
@@ -436,6 +447,7 @@ function ProductForm({ product, onClose }: { product?: Product; onClose: () => v
     oemNumber: product?.oemNumber || "",
     category: product?.category || "Hydraulics",
     binLocation: product?.binLocation || "",
+    warehouseBinId: product?.warehouseBinId || "",
     cost: product?.cost || 0,
     salePrice: product?.salePrice || 0,
     qtyOnHand: product?.qtyOnHand || 0,
@@ -444,6 +456,11 @@ function ProductForm({ product, onClose }: { product?: Product; onClose: () => v
     machineModel: product?.compat?.[0]?.machineModel || "",
     reason: "",
   });
+  useEffect(() => {
+    if (form.warehouseBinId || !form.binLocation || binRows.length === 0) return;
+    const match = binRows.find((b) => b.path === form.binLocation);
+    if (match) setForm((f) => ({ ...f, warehouseBinId: match.id }));
+  }, [binRows, form.binLocation, form.warehouseBinId]);
   const save = useMutation({
     mutationFn: async () => {
       if (!product) {
@@ -454,7 +471,7 @@ function ProductForm({ product, onClose }: { product?: Product; onClose: () => v
             oemNumber: form.oemNumber,
             name: form.name,
             category: form.category,
-            binLocation: form.binLocation,
+            ...(form.warehouseBinId ? { warehouseBinId: form.warehouseBinId } : { binLocation: form.binLocation }),
             cost: Number(form.cost),
             salePrice: Number(form.salePrice),
             qtyOnHand: 0,
@@ -469,7 +486,7 @@ function ProductForm({ product, onClose }: { product?: Product; onClose: () => v
           name: form.name,
           oemNumber: form.oemNumber,
           category: form.category,
-          binLocation: form.binLocation,
+          ...(form.warehouseBinId ? { warehouseBinId: form.warehouseBinId } : { binLocation: form.binLocation }),
           cost: Number(form.cost),
           salePrice: Number(form.salePrice),
           reorderLevel: Number(form.reorderLevel),
@@ -549,15 +566,35 @@ function ProductForm({ product, onClose }: { product?: Product; onClose: () => v
               aria-label="Category"
             />
           </MasterRecordCol>
-          <MasterRecordCol label="Stock location">
-            <input
-              className="master-record-bin"
-              value={form.binLocation}
-              onChange={(e) => setForm({ ...form, binLocation: e.target.value })}
-              placeholder="e.g. A-12-03"
-              required
-              aria-label="Stock location"
-            />
+          <MasterRecordCol label="Warehouse bin">
+            {binOptions.length > 0 ? (
+              <MteSelect
+                aria-label="Warehouse bin"
+                value={form.warehouseBinId}
+                onChange={(warehouseBinId) => {
+                  const row = binRows.find((b) => b.id === warehouseBinId);
+                  setForm({ ...form, warehouseBinId, binLocation: row?.path || form.binLocation });
+                }}
+                options={binOptions}
+                placeholder="Select bin…"
+                required
+              />
+            ) : (
+              <input
+                className="master-record-bin"
+                value={form.binLocation}
+                onChange={(e) => setForm({ ...form, binLocation: e.target.value })}
+                placeholder="e.g. A-12-03"
+                required
+                aria-label="Stock location"
+              />
+            )}
+            {warehouses.isLoading && <p className="mt-0.5 text-[10px] text-stone-400">Loading bins…</p>}
+            {!warehouses.isLoading && binOptions.length === 0 && (
+              <p className="mt-0.5 text-[10px] text-stone-500">
+                No bins yet — open <Link to="/inventory?section=warehouses" className="text-gold underline">Warehouses</Link> and sync, or type a location above.
+              </p>
+            )}
           </MasterRecordCol>
           {user?.role !== "SALES" && (
             <MasterRecordCol label="Unit cost">

@@ -162,18 +162,7 @@ export function InventoryMovements() {
   );
 }
 
-type WarehouseTree = {
-  id: string;
-  code: string;
-  name: string;
-  address?: string | null;
-  zones: {
-    id: string;
-    code: string;
-    label: string;
-    bins: { id: string; code: string; label?: string | null; _count: { parts: number } }[];
-  }[];
-};
+import type { WarehouseTree } from "../../lib/warehouse-bins";
 
 export function InventoryWarehouses() {
   const qc = useQueryClient();

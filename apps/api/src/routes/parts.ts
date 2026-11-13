@@ -119,7 +119,8 @@ const partBody = z.object({
   oemNumber: z.string().min(1),
   name: z.string().min(1),
   category: z.string().min(1),
-  binLocation: z.string().min(1),
+  binLocation: z.string().min(1).optional(),
+  warehouseBinId: zEntityId().optional(),
   cost: z.number().nonnegative(),
   salePrice: z.number().nonnegative(),
   qtyOnHand: z.number().optional(),
@@ -133,9 +134,21 @@ partsRouter.post("/", async (req, res) => {
   if (req.user!.role === "SALES") return res.status(403).json({ error: "Sales cannot create products" });
   const body = partBody.safeParse(req.body);
   if (!body.success) return res.status(400).json({ error: body.error.flatten() });
+  let binLocation = body.data.binLocation?.trim() || "";
+  let warehouseBinId: string | null = null;
+  if (body.data.warehouseBinId) {
+    const resolved = await resolveBinId(body.data.warehouseBinId);
+    if (!resolved) return res.status(400).json({ error: "Invalid warehouse bin" });
+    warehouseBinId = resolved.id;
+    binLocation = resolved.binLocation;
+  }
+  if (!binLocation) return res.status(400).json({ error: "Choose a warehouse bin or enter a stock location" });
+  const { warehouseBinId: _wb, binLocation: _bl, ...rest } = body.data;
   const part = await prisma.part.create({
     data: {
-      ...body.data,
+      ...rest,
+      binLocation,
+      warehouseBinId,
       qtyOnHand: 0,
       reorderLevel: body.data.reorderLevel ?? 2,
       compat: { create: body.data.compat || [] },
