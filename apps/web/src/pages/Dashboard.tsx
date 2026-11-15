@@ -156,7 +156,6 @@ export function Dashboard() {
           value={money(t?.payables)}
           chart="meter"
           share={(t?.payables || 0) + (t?.receivables || 0) ? (t?.payables || 0) / ((t?.payables || 0) + (t?.receivables || 0)) : 0}
-          hint="Of open books"
           to={finance === "/" ? "/" : `${finance}?section=ap&apView=aging`}
         />
       </StatGrid>

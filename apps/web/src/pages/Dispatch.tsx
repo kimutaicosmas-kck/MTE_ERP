@@ -165,7 +165,7 @@ export function Dispatch() {
           value={doneToday}
           series={charts.done}
           chart="spark"
-          hint={problems ? `${problems} need attention` : "On track"}
+          hint={problems ? `${problems} need attention` : undefined}
           to="/dispatch?tab=done"
         />
         <Stat
@@ -174,7 +174,6 @@ export function Dispatch() {
           value={queue.length}
           series={charts.pick}
           chart="area"
-          hint="Active dispatch jobs"
           to="/dispatch?tab=all"
         />
         <Stat
@@ -183,7 +182,7 @@ export function Dispatch() {
           value={problems}
           chart="ring"
           max={Math.max(queue.length, 1)}
-          hint={problems ? "Review problem orders" : "None flagged"}
+          hint={problems ? "Review problem orders" : undefined}
           to="/dispatch?tab=all"
         />
       </StatGrid>

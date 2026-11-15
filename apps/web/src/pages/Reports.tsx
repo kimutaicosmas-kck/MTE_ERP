@@ -121,12 +121,12 @@ export function Reports() {
     <div className="space-y-4 suite-dash">
       <PageHeader eyebrow="Intelligence" title="Reports & Analytics" />
       <StatGrid cols={6}>
-        <Stat icon={BarChart3} label="Executive" value="→" hint="Board KPIs" to="/reports?hub=executive" />
-        <Stat icon={Share2} label="Cross-module" value={stats.ageing} hint="Stock & sales data" to="/reports?hub=cross&tab=ageing" />
-        <Stat icon={LayoutGrid} label="Module hubs" value="4" hint="Sales · Inventory · Finance · HR" to="/reports?hub=cross" />
-        <Stat icon={Download} label="Export" value="CSV" hint="From any table" to="/reports?hub=export" />
-        <Stat icon={Gauge} label="KPI dashboards" value="→" hint="Live metrics" to="/reports?hub=kpi" />
-        <Stat icon={CalendarClock} label="Scheduled" value="→" hint="Automated reports" to="/reports?hub=scheduled" />
+        <Stat icon={BarChart3} label="Executive" value="→" to="/reports?hub=executive" />
+        <Stat icon={Share2} label="Cross-module" value={stats.ageing} to="/reports?hub=cross&tab=ageing" />
+        <Stat icon={LayoutGrid} label="Module hubs" value="4" to="/reports?hub=cross" />
+        <Stat icon={Download} label="Export" value="CSV" to="/reports?hub=export" />
+        <Stat icon={Gauge} label="KPI dashboards" value="→" to="/reports?hub=kpi" />
+        <Stat icon={CalendarClock} label="Scheduled" value="→" to="/reports?hub=scheduled" />
       </StatGrid>
       {hub === "executive" && <ExecutiveReportsHub />}
       {hub === "kpi" && <KpiDashboardsHub />}

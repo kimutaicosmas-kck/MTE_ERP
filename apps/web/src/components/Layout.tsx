@@ -403,9 +403,6 @@ export function Layout() {
               ) : (
                 <>
                   <span className="truncate text-sm font-semibold text-slate-900 dark:text-white">{heading.title}</span>
-                  {heading.eyebrow && heading.eyebrow.toLowerCase() !== heading.title.toLowerCase() ? (
-                    <span className="truncate text-sm text-slate-400">{heading.eyebrow}</span>
-                  ) : null}
                 </>
               )}
             </div>

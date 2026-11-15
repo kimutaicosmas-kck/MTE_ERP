@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ConfirmDialog, MteSelect, PageHeader, mapSelectOptions, useQueryState } from "../components/ui";
-import { openAssistantFromLink } from "../components/AiAssistant";
 import { Link } from "react-router-dom";
 import { canModule } from "../lib/access";
 import { api, getToken } from "../lib/api";
@@ -301,19 +300,10 @@ function IntegrationsSettings() {
             <input type="password" autoComplete="off" value={current.openaiApiKey || ""} onChange={(e) => set("openaiApiKey", e.target.value)} placeholder={current.openaiKeySet ? "Leave blank to keep" : "Optional — local answers work without key"} />
           </div>
         </div>
-        <p className="text-xs text-stone-500">Without an API key, the assistant uses live ERP rules (approvals, dispatch, stock). Add a key for natural-language follow-ups.</p>
         {save.error && <p className="text-sm text-red-600">{(save.error as Error).message}</p>}
         <div className="flex justify-end">
-          <button className="btn-gold" disabled={save.isPending} onClick={() => save.mutate()}>Save integrations</button>
+          <button className="btn-gold" disabled={save.isPending} onClick={() => save.mutate()}>Save</button>
         </div>
-      </div>
-
-      <div className="card flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="font-semibold">MTE AI assistant</h2>
-          <p className="text-sm text-stone-500">One assistant for sales, inventory, finance, and reports — use the AI button on screen.</p>
-        </div>
-        <button type="button" className="btn-gold" onClick={() => openAssistantFromLink()}>Open AI assistant</button>
       </div>
     </div>
   );

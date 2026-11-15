@@ -414,7 +414,7 @@ function ruleBasedReply(message: string, snap: ErpSnapshot, live: LiveSearch): s
 
   if (/^(hi|hello|hey)\b/.test(q)) {
 
-    return `Hello ${snap.user.name.split(" ")[0]}. Ask me anything about MTE ERP — workflows, your numbers, or where to go in the app.`;
+    return `Hello ${snap.user.name.split(" ")[0]}. I can look up a customer, an order, or stock, and walk you through the next step.`;
 
   }
 
@@ -491,15 +491,43 @@ function ruleBasedReply(message: string, snap: ErpSnapshot, live: LiveSearch): s
 
   }
 
-  if (q.includes("po") || q.includes("purchase") || q.includes("procurement")) {
+  if (/\b(po|purchase|procurement)\b/.test(q)) {
 
     return `**${snap.kpis.openPOs}** open PO(s). [Procurement](/procurement).`;
 
   }
 
+  if ((q.includes("import") || q.includes("re-import") || q.includes("reimport")) && (q.includes("cost") || q.includes("price") || q.includes("same product") || q.includes("product"))) {
+
+    return [
+
+      "A product keeps **one import cost**.",
+
+      "Import it at 150, then import the same part again at 250, and the cost changes from 150 to 250. Quantity already on the shelf does not increase.",
+
+      "Set the selling price after the goods land, and confirm it again after the later import.",
+
+      "Extra pieces are added when you receive a [purchase order](/procurement).",
+
+    ].join("\n");
+
+  }
+
+  if (q.includes("void") && (q.includes("payment") || q.includes("receipt"))) {
+
+    return "Void reverses that receipt and puts the balance back on the invoice. Finance queues it for approval. A Super Admin can approve it immediately in [Approvals](/approvals).";
+
+  }
+
+  if ((q.includes("part") || q.includes("partial") || q.includes("half")) && q.includes("pay")) {
+
+    return "Open [Finance](/finance), choose Record payment, select the invoices, and enter the amount received. The remainder stays open on the invoice.";
+
+  }
+
   if (q.includes("invoice") || q.includes("receivable") || q.includes("collect") || q.includes("payment") || q.includes("mpesa")) {
 
-    return `Invoices & collections: [Finance](/finance).`;
+    return `Invoices and collections are in [Finance](/finance). ${snap.kpis.unpaidInvoices} invoice(s) are still open.`;
 
   }
 
@@ -518,6 +546,30 @@ function ruleBasedReply(message: string, snap: ErpSnapshot, live: LiveSearch): s
   if (q.includes("setting") || q.includes("integrat") || q.includes("openai") || q.includes("daraja") || q.includes("mpesa setup")) {
 
     return "Company & integrations: [Settings](/settings).";
+
+  }
+
+  if (/\b(attention|waiting|overview|summary|status|how are we)\b/.test(q)) {
+
+    const k = snap.kpis;
+
+    const lines = [
+
+      `**${k.pendingApprovals}** approval(s) waiting — [Approvals](/approvals)`,
+
+      `**${k.dispatchQueue}** in dispatch — [Dispatch](/dispatch)`,
+
+      `**${k.lowStock}** low-stock item(s) — [Inventory](/inventory?section=reorder)`,
+
+      `**${k.unpaidInvoices}** unpaid invoice(s) — [Finance](/finance)`,
+
+      `**${k.myOpenQuotes}** open quote(s) · **${k.myOrdersToday}** order(s) today — [Sales](/sales)`,
+
+    ];
+
+    if (snap.alerts.length) lines.push(...snap.alerts.map((a) => `• ${a.title}`));
+
+    return lines.join("\n");
 
   }
 
@@ -595,7 +647,11 @@ async function openAiReply(
 
     "Use markdown. Link to in-app routes as [Label](/path). Never invent counts — use snapshot and searchResults JSON only.",
 
-    "Currency: KES. Be concise but complete; use steps when explaining workflows (quote → order → pick → dispatch → invoice → payment).",
+    "Currency: KES. Be concise. Short paragraphs. No filler.",
+
+    "Import cost: a product has one import cost. Importing the same product again replaces that cost and does not add quantity. Staff set the selling price after goods land.",
+
+    "Partial payments are allowed in Finance → Record payment. Voiding a payment reverses the receipt.",
 
     "If the user lacks access to a module, say so and suggest their admin.",
 
@@ -669,13 +725,27 @@ function offlineFallback(message: string, snap: ErpSnapshot, live: LiveSearch, h
 
   if (rule) return rule;
 
-  if (hasOpenAi) {
+  const k = snap.kpis;
 
-    return "I couldn’t reach the AI service just now. Try again in a moment, or name a customer, order number, or SKU so I can look it up.";
+  const picture = [
 
-  }
+    hasOpenAi ? "I couldn’t reach the model just now. Here is what I can see:" : "Here is what I can see:",
 
-  return "Add an **OpenAI API key** under [Settings → Integrations](/settings?tab=integrations) for full natural-language answers. You can still ask about dispatch, stock, approvals, or include a customer or SKU in your message.";
+    `• ${k.pendingApprovals} approvals waiting`,
+
+    `• ${k.dispatchQueue} in dispatch`,
+
+    `• ${k.lowStock} low-stock items`,
+
+    `• ${k.unpaidInvoices} unpaid invoices`,
+
+    `• ${k.myOpenQuotes} open quotes · ${k.myOrdersToday} orders today`,
+
+    "Name a customer, order number, or SKU, or ask how to record a payment.",
+
+  ];
+
+  return picture.join("\n");
 
 }
 

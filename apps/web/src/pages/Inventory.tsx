@@ -188,7 +188,6 @@ export function Inventory() {
           icon={Boxes}
           chart="bars"
           series={stats.byCat.length ? stats.byCat : movementSeries}
-          hint="Units on hand"
           to="/inventory?section=products"
         />
         <Stat
@@ -197,7 +196,6 @@ export function Inventory() {
           icon={Lock}
           chart="meter"
           share={dash.data?.available ? (dash.data.reserved || 0) / Math.max(1, dash.data.available + (dash.data.reserved || 0)) : undefined}
-          hint="Open orders"
           to="/dispatch"
         />
         <Stat
@@ -215,7 +213,6 @@ export function Inventory() {
           icon={ArrowDownToLine}
           chart="spark"
           series={movementSeries}
-          hint="Goods in"
           to="/inventory?section=movements"
         />
         <Stat
@@ -224,7 +221,6 @@ export function Inventory() {
           icon={ArrowUpFromLine}
           chart="spark"
           series={[...movementSeries].reverse()}
-          hint="Goods out"
           to="/inventory?section=movements"
         />
       </StatGrid>

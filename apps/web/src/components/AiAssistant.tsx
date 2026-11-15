@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, MessageSquare, Send, Trash2, X } from "lucide-react";
+import { ArrowUp, Sparkles, Trash2, X } from "lucide-react";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 
-type Turn = { id: string; role: string; content: string; createdAt: string };
+type Turn = { id: string; role: string; content: string; createdAt?: string };
 
 type AssistantCtx = {
   open: boolean;
@@ -12,6 +12,13 @@ type AssistantCtx = {
   openPanel: () => void;
   close: () => void;
 };
+
+const STARTERS = [
+  "What needs attention?",
+  "Which items are low on stock?",
+  "How do I record a part payment?",
+  "What happens if I import the same product at a new cost?",
+];
 
 const AssistantContext = createContext<AssistantCtx | null>(null);
 
@@ -24,20 +31,20 @@ function useAssistant() {
 function renderLine(line: string, key: number) {
   const parts = line.split(/(\[[^\]]+\]\([^)]+\))/g);
   return (
-    <p key={key} className="whitespace-pre-wrap text-sm leading-relaxed">
+    <p key={key} className="whitespace-pre-wrap">
       {parts.map((part, i) => {
         const m = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
         if (m) {
-          const to = m[2].startsWith("/") ? m[2] : m[2];
+          const to = m[2];
           if (to.startsWith("/")) {
             return (
-              <Link key={i} to={to} className="font-medium text-gold underline underline-offset-2">
+              <Link key={i} to={to} className="font-medium underline underline-offset-2">
                 {m[1]}
               </Link>
             );
           }
           return (
-            <a key={i} href={to} className="font-medium text-gold underline underline-offset-2">
+            <a key={i} href={to} className="font-medium underline underline-offset-2">
               {m[1]}
             </a>
           );
@@ -57,10 +64,12 @@ function renderContent(text: string) {
   return text.split("\n").map((line, i) => (line ? renderLine(line, i) : <br key={i} />));
 }
 
-export function AiAssistantPanel({ compact }: { compact?: boolean }) {
+export function AiAssistantPanel({ compact, onClose }: { compact?: boolean; onClose?: () => void }) {
   const qc = useQueryClient();
   const [input, setInput] = useState("");
+  const [pendingText, setPendingText] = useState<string | null>(null);
   const scroll = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLTextAreaElement>(null);
   const history = useQuery({
     queryKey: ["assistant-history"],
     queryFn: () => api<Turn[]>("/api/assistant/history"),
@@ -68,49 +77,86 @@ export function AiAssistantPanel({ compact }: { compact?: boolean }) {
   const chat = useMutation({
     mutationFn: (message: string) => api<{ reply: string; mode: string }>("/api/assistant/chat", { method: "POST", body: JSON.stringify({ message }) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["assistant-history"] }),
+    onSettled: () => setPendingText(null),
   });
   const clear = useMutation({
     mutationFn: () => api("/api/assistant/history", { method: "DELETE" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["assistant-history"] }),
+    onSuccess: () => {
+      setPendingText(null);
+      qc.invalidateQueries({ queryKey: ["assistant-history"] });
+    },
   });
+
+  const turns = history.data || [];
+  const visible = pendingText && !turns.some((t) => t.role === "user" && t.content === pendingText)
+    ? [...turns, { id: "pending-user", role: "user", content: pendingText }]
+    : turns;
 
   useEffect(() => {
     scroll.current?.scrollTo({ top: scroll.current.scrollHeight, behavior: "smooth" });
-  }, [history.data, chat.isPending]);
+  }, [visible.length, chat.isPending]);
 
   function send(text?: string) {
     const msg = (text ?? input).trim();
     if (!msg || chat.isPending) return;
     setInput("");
+    setPendingText(msg);
+    if (box.current) box.current.style.height = "auto";
     chat.mutate(msg);
   }
 
-  const turns = history.data || [];
+  function onInput(value: string) {
+    setInput(value);
+    const el = box.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+  }
 
   return (
     <div className={`assistant-panel ${compact ? "assistant-panel-compact" : ""}`}>
       <div className="assistant-panel-head">
         <div className="flex items-center gap-2">
           <span className="assistant-icon-ring">
-            <Bot size={18} />
+            <Sparkles size={15} />
           </span>
-          <div>
-            <div className="text-sm font-semibold text-ink dark:text-white">MTE AI assistant</div>
-          </div>
+          <div className="text-sm font-semibold text-ink dark:text-white">Assistant</div>
         </div>
-        {!compact && (
-          <button type="button" className="btn-ghost px-2 py-1 text-xs" onClick={() => clear.mutate()} disabled={clear.isPending}>
-            <Trash2 size={14} /> Clear
+        <div className="assistant-head-actions">
+          <button type="button" className="assistant-icon-btn" aria-label="Clear chat" onClick={() => clear.mutate()} disabled={clear.isPending || !turns.length}>
+            <Trash2 size={15} />
           </button>
-        )}
+          {onClose && (
+            <button type="button" className="assistant-icon-btn" aria-label="Close" onClick={onClose}>
+              <X size={16} />
+            </button>
+          )}
+        </div>
       </div>
       <div ref={scroll} className="assistant-panel-body">
-        {turns.map((t) => (
+        {visible.length === 0 && !chat.isPending && (
+          <div className="assistant-empty">
+            <h3>How can I help?</h3>
+            <p>Ask about a customer, an order, stock, or the next step.</p>
+            <div className="assistant-suggestions">
+              {STARTERS.map((s) => (
+                <button key={s} type="button" className="assistant-chip" onClick={() => send(s)}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {visible.map((t) => (
           <div key={t.id} className={t.role === "user" ? "assistant-bubble assistant-bubble-user" : "assistant-bubble assistant-bubble-bot"}>
             {renderContent(t.content)}
           </div>
         ))}
-        {chat.isPending && <div className="assistant-bubble assistant-bubble-bot text-sm text-slate-500">Thinking…</div>}
+        {chat.isPending && (
+          <div className="assistant-bubble assistant-bubble-bot" aria-label="Thinking">
+            <span className="assistant-typing"><span /><span /><span /></span>
+          </div>
+        )}
         {chat.error && <p className="text-sm text-red-600">{(chat.error as Error).message}</p>}
       </div>
       <form
@@ -120,14 +166,22 @@ export function AiAssistantPanel({ compact }: { compact?: boolean }) {
           send();
         }}
       >
-        <input
+        <textarea
+          ref={box}
+          rows={1}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask anything about MTE ERP…"
+          onChange={(e) => onInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              send();
+            }
+          }}
+          placeholder="Ask anything"
           aria-label="Message assistant"
         />
-        <button type="submit" className="btn-gold px-3" disabled={chat.isPending || !input.trim()}>
-          <Send size={16} />
+        <button type="submit" className="assistant-send" disabled={chat.isPending || !input.trim()} aria-label="Send">
+          <ArrowUp size={16} />
         </button>
       </form>
     </div>
@@ -140,11 +194,8 @@ function AssistantOverlay() {
   return (
     <>
       <button type="button" className="assistant-backdrop" aria-label="Close assistant" onClick={close} />
-      <div className="assistant-drawer" role="dialog" aria-label="AI assistant">
-        <button type="button" className="assistant-drawer-close" aria-label="Close" onClick={close}>
-          <X size={18} />
-        </button>
-        <AiAssistantPanel />
+      <div className="assistant-drawer" role="dialog" aria-label="Assistant">
+        <AiAssistantPanel onClose={close} />
       </div>
     </>
   );
@@ -152,15 +203,15 @@ function AssistantOverlay() {
 
 export function AiAssistantFab() {
   const { toggle, open } = useAssistant();
+  if (open) return null;
   return (
     <button
       type="button"
-      className={`assistant-fab ${open ? "assistant-fab-open" : ""}`}
-      aria-label={open ? "Close AI assistant" : "Open AI assistant"}
+      className="assistant-fab"
+      aria-label="Open assistant"
       onClick={toggle}
     >
-      {open ? <X size={22} /> : <MessageSquare size={22} />}
-      {!open && <span className="assistant-fab-label">AI</span>}
+      <Sparkles size={18} />
     </button>
   );
 }

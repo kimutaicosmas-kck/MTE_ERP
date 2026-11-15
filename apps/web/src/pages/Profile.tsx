@@ -1,4 +1,4 @@
-import { Bell, Camera, Download, KeyRound, Monitor, Moon, Sun } from "lucide-react";
+import { Bell, Camera, KeyRound, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { MODULES, DEPARTMENTS, canModule, departmentFor } from "../lib/access";
@@ -169,21 +169,9 @@ export function AccountPanel() {
       </div>
 
       <div className="card space-y-3">
-        <h2 className="font-semibold">Install & offline</h2>
-        {pending > 0 && <p className="text-sm text-stone-500">{pending} change(s) waiting to upload.</p>}
-        <div className="flex flex-wrap gap-2">
-          <button className="btn-ghost" onClick={async () => { await syncOfflineQueue(); setPending(await pendingCount()); note("Synced"); }}>Sync now</button>
-          <button
-            className="btn-ghost"
-            onClick={async () => {
-              const ev = (window as any).deferredPrompt;
-              if (ev) await ev.prompt();
-              else note("Use Chrome or Edge · Install app from the browser menu");
-            }}
-          >
-            <Download size={16} /> Install like an app
-          </button>
-        </div>
+        <h2 className="font-semibold">Offline</h2>
+        {pending > 0 && <p className="text-sm text-stone-500">{pending} waiting to upload</p>}
+        <button className="btn-ghost" onClick={async () => { await syncOfflineQueue(); setPending(await pendingCount()); note("Synced"); }}>Sync now</button>
       </div>
 
       {err && <p className="text-sm text-red-600">{err}</p>}

@@ -189,10 +189,10 @@ export function Audit() {
     <div className="space-y-4 suite-dash">
       <PageHeader eyebrow="Activity log" title="Audit" />
       <StatGrid cols={6}>
-        <Stat icon={Calendar} label="Today" value={today} series={seriesByDay(data, (a) => a.createdAt, () => 1, 14)} chart="bars" hint="What happened today" to="/audit" />
-        <Stat icon={Activity} label="All activity" value={data.length} series={seriesByDay(data, (a) => a.createdAt, () => 1, 14)} chart="area" hint="Saved history" to="/audit" />
-        <Stat icon={Users} label="People" value={people} chart="ring" max={Math.max(data.length, 1)} hint="Who appears in the log" to="/hr?tab=employees" />
-        <Stat icon={Tags} label="Kinds of change" value={kinds} series={Object.values(data.reduce<Record<string, number>>((acc, a) => { acc[a.action] = (acc[a.action] || 0) + 1; return acc; }, {}))} chart="spark" hint="Added, approved, posted…" to="/audit" />
+        <Stat icon={Calendar} label="Today" value={today} series={seriesByDay(data, (a) => a.createdAt, () => 1, 14)} chart="bars" to="/audit" />
+        <Stat icon={Activity} label="All activity" value={data.length} series={seriesByDay(data, (a) => a.createdAt, () => 1, 14)} chart="area" to="/audit" />
+        <Stat icon={Users} label="People" value={people} chart="ring" max={Math.max(data.length, 1)} to="/hr?tab=employees" />
+        <Stat icon={Tags} label="Kinds of change" value={kinds} series={Object.values(data.reduce<Record<string, number>>((acc, a) => { acc[a.action] = (acc[a.action] || 0) + 1; return acc; }, {}))} chart="spark" to="/audit" />
         <Stat icon={Calendar} label="Last 7 days" value={week} series={seriesByDay(data, (a) => a.createdAt, () => 1, 7)} chart="area" to="/audit" />
         <Stat icon={Tags} label="Record types" value={entities} chart="ring" max={Math.max(data.length, 1)} to="/audit" />
       </StatGrid>

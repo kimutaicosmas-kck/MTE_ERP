@@ -139,7 +139,6 @@ export function PurchaseDetail() {
       {po.receipts?.length > 0 && (
         <div className="card space-y-2">
           <h2 className="font-semibold">Goods receipts</h2>
-          <p className="text-xs text-stone-500">Each GRN increases stock (movement type RECEIPT) and posts a vendor bill to finance.</p>
           {po.receipts.map((r) => (
             <div key={r.id} className="flex flex-wrap justify-between gap-2 text-sm border-t border-stone-100 pt-2 first:border-0 first:pt-0">
               <span>{r.number} · {r.receivedBy?.name || "Warehouse"}</span>

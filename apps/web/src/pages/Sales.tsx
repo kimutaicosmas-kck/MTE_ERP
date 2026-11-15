@@ -228,7 +228,6 @@ export function Sales() {
           delta={pctChange(stats.today, stats.yesterday)}
           series={stats.dayRevenue}
           chart="area"
-          hint="Confirmed orders today"
           to="/sales?when=today"
         />
         <Stat
@@ -238,7 +237,7 @@ export function Sales() {
           delta={pctChange(stats.monthRevenue, stats.lastMonthRevenue)}
           series={stats.monthSeries}
           chart="bars"
-          hint={stats.monthOrderCount ? `${stats.monthOrderCount} orders this month` : "No sales yet this month"}
+          hint={stats.monthOrderCount ? `${stats.monthOrderCount} ${stats.monthOrderCount === 1 ? "order" : "orders"}` : undefined}
           to="/sales?when=month"
         />
         <Stat
@@ -247,7 +246,6 @@ export function Sales() {
           value={stats.active}
           series={stats.completedTrend}
           chart="bars"
-          hint="In progress"
           to="/sales?tab=orders"
         />
         <Stat
@@ -257,7 +255,6 @@ export function Sales() {
           series={stats.completedTrend}
           chart="spark"
           share={stats.total ? stats.completed / stats.total : 0}
-          hint="Delivered or paid"
           to="/sales?status=done"
         />
         <Stat
@@ -266,7 +263,7 @@ export function Sales() {
           value={stats.quotes}
           series={stats.quoteTrend}
           chart="area"
-          hint={stats.quotes ? `${stats.quotes} open` : "None open"}
+          hint={stats.quotes ? `${stats.quotes} open` : undefined}
           to="/sales?tab=quotes"
         />
         <Stat
@@ -275,7 +272,7 @@ export function Sales() {
           value={stats.cancelled}
           chart="ring"
           max={Math.max(stats.total + stats.cancelled, 1)}
-          hint={stats.outstanding > 0 ? `${money(stats.outstanding)} open AR` : "No open balance"}
+          hint={stats.outstanding > 0 ? `${money(stats.outstanding)} open` : undefined}
           to="/sales?status=CANCELLED"
         />
       </StatGrid>

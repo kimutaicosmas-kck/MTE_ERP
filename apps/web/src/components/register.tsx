@@ -63,7 +63,6 @@ export function EmptyState({
         <Plus size={20} />
       </div>
       <div className="empty-state-title">{title}</div>
-      <p className="empty-state-copy">Switch filters or add a record to get started.</p>
       {to && actionLabel ? (
         <Link to={to} className="btn-gold mt-4"><Plus size={16} /> {actionLabel}</Link>
       ) : actionLabel && onAction ? (
@@ -331,6 +330,16 @@ export function Register<T>({
                   </div>
                 ))}
               </div>
+              {mobile.actions ? (
+                <div
+                  className="m-card-actions"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onPointerUp={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {mobile.actions(row)}
+                </div>
+              ) : null}
             </article>
           );
         })}

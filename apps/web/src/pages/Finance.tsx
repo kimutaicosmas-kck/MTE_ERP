@@ -214,12 +214,12 @@ export function Finance() {
       <PageHeader eyebrow="Finance" title={sectionTitle} />
 
       <StatGrid cols={6}>
-        <Stat icon={Wallet} label="Cash & bank" amount={dash.data?.cashBalance ?? 0} chart="area" hint="Liquid funds" to="/finance?section=banking" />
+        <Stat icon={Wallet} label="Cash & bank" amount={dash.data?.cashBalance ?? 0} chart="area" to="/finance?section=banking" />
         <Stat icon={Receipt} label="Receivable" amount={dash.data?.accountsReceivable ?? outstanding} chart="area" hint={`${unpaid.length} open · ${overdueList.length} overdue`} to="/finance?section=overview" />
         <Stat icon={Scale} label="Payable" amount={dash.data?.accountsPayable ?? 0} chart="meter" share={dash.data?.assets ? Math.min(1, (dash.data?.accountsPayable || 0) / dash.data.assets) : 0} hint={`${dash.data?.openBills ?? 0} open bills`} to="/finance?section=ap" />
         <Stat icon={Banknote} label="Net profit" value={money(dash.data?.netProfit ?? pnl.data?.net ?? 0)} chart="ring" max={Math.max(dash.data?.monthlyRevenue ?? 1, 1)} hint={`Tax due ${money(dash.data?.taxDue ?? vatDue)}`} to="/finance?section=reports&report=vat" />
-        <Stat icon={TrendingUp} label="Revenue" amount={dash.data?.monthlyRevenue ?? 0} chart="area" hint="Income (ledger)" to="/finance?section=reports&report=statements" />
-        <Stat icon={Package} label="Outstanding" amount={dash.data?.outstandingInvoices ?? overdueAmount} chart="bars" hint="Open invoice balance" to="/finance?section=ar" />
+        <Stat icon={TrendingUp} label="Revenue" amount={dash.data?.monthlyRevenue ?? 0} chart="area" to="/finance?section=reports&report=statements" />
+        <Stat icon={Package} label="Outstanding" amount={dash.data?.outstandingInvoices ?? overdueAmount} chart="bars" to="/finance?section=ar" />
       </StatGrid>
 
       <MobileFinanceNav />
@@ -1513,7 +1513,7 @@ function BankRec({ data, onDone }: { data: any; onDone: () => void }) {
           );
         })}
         {(data.unmatchedVendorPayments || []).length > 0 && (
-          <p className="text-xs text-stone-500">{data.unmatchedVendorPayments.length} supplier payments recorded — statement import will link these in a later release.</p>
+          <p className="text-xs text-stone-500">{data.unmatchedVendorPayments.length} supplier payments not on a statement.</p>
         )}
       </div>
     </div>

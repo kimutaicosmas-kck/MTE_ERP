@@ -20,6 +20,10 @@ const client = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false, retry: queryShouldRetry, networkMode: "offlineFirst" } },
 });
 
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+});
+
 registerSW({
   immediate: true,
   onNeedRefresh() {
