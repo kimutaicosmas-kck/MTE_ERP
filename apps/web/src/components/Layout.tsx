@@ -32,7 +32,6 @@ import { isOnline } from "../lib/offline";
 import { useTheme } from "../lib/theme";
 import { usePageTitle } from "../lib/page-title";
 import { NotificationBell } from "./NotificationBell";
-import { PwaInstallHelp } from "./PwaInstallHelp";
 import { AssistantGlobalListener, AssistantProvider } from "./AiAssistant";
 import { SidebarModuleNav } from "./SidebarModuleNav";
 import { MobileFab } from "./MobileFab";
@@ -280,7 +279,6 @@ export function Layout() {
           >
             {user?.avatarUrl ? <img src={user.avatarUrl} alt="" className="h-9 w-9 rounded-full object-cover" /> : initials}
           </NavLink>
-          <PwaInstallHelp />
           <button
             type="button"
             className="header-icon-btn shrink-0 text-slate-600 dark:text-slate-200"
@@ -427,7 +425,6 @@ export function Layout() {
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search orders, customers, products, invoices…" className="header-search text-sm" />
         </form>
         <div className="flex shrink-0 items-center justify-end gap-1.5">
-          <PwaInstallHelp className="rounded-lg p-2 text-slate-500 hover:bg-stone-100 dark:text-slate-200 dark:hover:bg-white/10" />
           <NotificationBell />
           <NavLink to="/settings" className="ml-0.5 grid h-8 w-8 place-items-center rounded-full bg-slate-800 text-[11px] font-bold text-white" title="Profile">
             {user?.avatarUrl ? <img src={user.avatarUrl} alt="" className="h-8 w-8 rounded-full object-cover" /> : initials}

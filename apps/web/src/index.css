@@ -4257,8 +4257,21 @@ html.dark .pay-record-field {
   color: #cbd5e1;
 }
 .pay-record-field input[type="date"],
-.pay-record-field input[type="text"] {
+.pay-record-field input[type="text"],
+.pay-record-field input[type="number"] {
   font-size: 0.9rem;
+}
+.pay-record-amount-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.85rem;
+  padding-bottom: 0.35rem;
+}
+.pay-record-hint {
+  margin: -0.15rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: #64748b;
 }
 .pay-record-invoices {
   border: 1px solid #e2e8f0;

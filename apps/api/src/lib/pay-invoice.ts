@@ -53,6 +53,7 @@ export async function applyInvoicePayment(input: {
     amount,
     userId: input.userId,
     date: paidAt,
+    paymentId: pay.id,
   });
   const updated = await refreshInvoiceStatus(invoice.orderId);
 

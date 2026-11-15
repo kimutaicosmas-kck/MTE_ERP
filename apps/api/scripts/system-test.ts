@@ -8,6 +8,7 @@
 
 const BASE = (process.env.API_BASE || "http://127.0.0.1:4000").replace(/\/$/, "");
 const PASS = "Mte@2026";
+const LOAD_TEST_KEY = process.env.LOAD_TEST_KEY || "mte-local-load-key";
 
 type Result = { name: string; ok: boolean; ms?: number; detail?: string };
 
@@ -31,7 +32,7 @@ async function req(
   opts?: { token?: string; body?: unknown; expect?: number }
 ): Promise<{ status: number; json: any; ms: number }> {
   const t0 = performance.now();
-  const headers: Record<string, string> = { Accept: "application/json" };
+  const headers: Record<string, string> = { Accept: "application/json", "X-Load-Test-Key": LOAD_TEST_KEY };
   if (opts?.token) headers.Authorization = `Bearer ${opts.token}`;
   if (opts?.body !== undefined) headers["Content-Type"] = "application/json";
   const res = await fetch(`${BASE}${path}`, {
@@ -93,6 +94,7 @@ async function runFlow() {
   console.log("\n=== End-to-end business flow ===\n");
 
   const adminTok = await login("admin@mte.local");
+  const superTok = await login("superadmin@mte.local");
   const warehouseTok = await login("warehouse@mte.local");
   const salesTok = await login("sales@mte.local");
   const financeTok = await login("finance@mte.local");
@@ -106,7 +108,7 @@ async function runFlow() {
       rows: [
         {
           sku,
-          oemNumber: `OEM-${tag}`,
+          oemNumber: sku,
           name: `System test filter ${tag}`,
           category: "Filters",
           binLocation: "Z-99-01",
@@ -128,7 +130,7 @@ async function runFlow() {
   pass("Import part recognized", `${r.json.created ?? 0} created, ${r.json.updated ?? 0} updated`);
 
   r = await req("GET", "/api/parts", { token: warehouseTok, expect: 200 });
-  const part = (r.json as { sku: string; id: string; qtyOnHand: number }[]).find((p) => p.sku === sku);
+  const part = (r.json as { sku: string; id: string; qtyOnHand: number; binLocation?: string }[]).find((p) => p.sku === sku);
   if (!part) {
     fail("Part visible in inventory", "SKU not found after import");
     return;
@@ -178,14 +180,23 @@ async function runFlow() {
     return;
   }
 
+  r = await req("GET", "/api/inventory/warehouses", { token: warehouseTok, expect: 200 });
+  const site = (r.json as { id: string; code: string; name: string }[]).find((w) => w.code === "MAIN") || r.json?.[0];
+  if (!site?.id) {
+    fail("Warehouse lookup", "no sites");
+    return;
+  }
+
   // Quotation → sales order / invoice
   r = await req("POST", "/api/orders", {
     token: salesTok,
     body: {
       channel: "SHOP",
       customerId: customer.id,
+      saleLocation: site.name,
+      warehouseSiteId: site.id,
       dispatchMethod: "SHOP_COLLECT",
-      lines: [{ partId: part.id, qty: 1 }],
+      lines: [{ partId: part.id, qty: 1, pickLocation: part.binLocation || "Z-99-01" }],
     },
     expect: 201,
   });
@@ -248,12 +259,67 @@ async function runFlow() {
     expect: 201,
   });
   if (!assertStatus("Record payment", r.status, 201, r.json, r.ms)) return;
+  const paymentId = r.json.id as string;
 
   r = await req("GET", `/api/orders/${orderId}`, { token: financeTok, expect: 200 });
   const balance = r.json.totals?.balance ?? r.json.invoice?.balance;
   const invStatus = r.json.invoice?.status;
   if (balance <= 0.05 || invStatus === "PAID") pass("Invoice settled", `balance=${balance} status=${invStatus}`);
   else fail("Invoice settled", `balance=${balance} status=${invStatus}`);
+
+  r = await req("POST", `/api/finance/payments/${paymentId}/void`, {
+    token: financeTok,
+    body: { reason: `System test void ${tag}` },
+    expect: 202,
+  });
+  if (!assertStatus("Finance void waits for approval", r.status, 202, r.json, r.ms)) return;
+  const approvalId = r.json?.approval?.id as string | undefined;
+  if (!approvalId) {
+    fail("Finance void waits for approval", "missing approval id");
+    return;
+  }
+
+  r = await req("GET", `/api/orders/${orderId}`, { token: financeTok, expect: 200 });
+  const pendingBalance = r.json.totals?.balance ?? r.json.invoice?.balance;
+  const stillThere = (r.json.payments as { id: string }[] | undefined)?.some((p) => p.id === paymentId);
+  if (stillThere && pendingBalance <= 0.05) pass("Payment unchanged while void is pending");
+  else fail("Payment unchanged while void is pending", `present=${stillThere} balance=${pendingBalance}`);
+
+  r = await req("POST", `/api/approvals/${approvalId}/decide`, {
+    token: superTok,
+    body: { decision: "APPROVED" },
+    expect: 200,
+  });
+  if (!assertStatus("Super Admin approves void", r.status, 200, r.json, r.ms)) return;
+
+  r = await req("GET", `/api/orders/${orderId}`, { token: financeTok, expect: 200 });
+  const restored = r.json.totals?.balance ?? r.json.invoice?.balance;
+  const removed = !(r.json.payments as { id: string }[] | undefined)?.some((p) => p.id === paymentId);
+  if (removed && Math.abs(Number(restored) - payAmount) <= 0.05) {
+    pass("Void restored invoice balance", `balance=${restored}`);
+  } else {
+    fail("Void restored invoice balance", `present=${!removed} balance=${restored} expected≈${payAmount}`);
+  }
+
+  r = await req("GET", "/api/finance/journals", { token: financeTok, expect: 200 });
+  const original = (r.json as { source: string; sourceId?: string | null; reversed?: boolean }[]).find(
+    (j) => j.source === "PAYMENT" && j.sourceId === paymentId
+  );
+  if (original?.reversed) pass("Payment journal marked reversed");
+  else fail("Payment journal marked reversed", original ? "journal still open" : "payment journal not in recent list");
+
+  r = await req("POST", `/api/orders/${orderId}/payments`, {
+    token: financeTok,
+    body: { amount: payAmount, method: "CASH", reference: `SYS2-${tag}` },
+    expect: 201,
+  });
+  if (!assertStatus("Record payment after void", r.status, 201, r.json, r.ms)) return;
+
+  r = await req("GET", `/api/orders/${orderId}`, { token: financeTok, expect: 200 });
+  const repaid = r.json.totals?.balance ?? r.json.invoice?.balance;
+  const repaidStatus = r.json.invoice?.status;
+  if (repaid <= 0.05 || repaidStatus === "PAID") pass("Invoice settled after repay", `balance=${repaid} status=${repaidStatus}`);
+  else fail("Invoice settled after repay", `balance=${repaid} status=${repaidStatus}`);
 
   r = await req("GET", "/api/activity?limit=5", { token: adminTok, expect: 200 });
   if (r.status === 200 && Array.isArray(r.json)) pass("Audit trail readable", `${r.json.length} recent events`);

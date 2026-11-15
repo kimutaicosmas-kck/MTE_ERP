@@ -1,7 +1,7 @@
 import { prisma } from "./prisma.js";
 import { adjustSiteQty, defaultWarehouseSiteId, patchSiteBinForPart } from "./site-stock.js";
 import { postJournal, postStockReceipt, reverseJournal } from "./ledger.js";
-import { refreshInvoiceStatus } from "./invoice.js";
+import { voidCustomerPayment } from "./void-payment.js";
 import { executeSalesReturn } from "./sales-return.js";
 import { destroyUserSessions } from "./redis.js";
 
@@ -128,22 +128,7 @@ export async function applyApproval(
     await prisma.expense.delete({ where: { id: approval.entityId } }).catch(() => null);
   }
   if (approval.type === "VOID_PAYMENT") {
-    const pay = await prisma.payment.findUnique({ where: { id: approval.entityId } });
-    if (!pay) return;
-    const order = await prisma.order.findUnique({ where: { id: pay.orderId }, include: { invoice: true } });
-    const cashCode = pay.method === "MPESA" ? "1010" : pay.method === "BANK" ? "1020" : "1000";
-    await postJournal({
-      memo: `Void payment ${order?.invoice?.number || order?.number || pay.id}`,
-      source: "REVERSAL",
-      sourceId: pay.id,
-      userId,
-      lines: [
-        { code: "1100", debit: pay.amount },
-        { code: cashCode, credit: pay.amount },
-      ],
-    });
-    await prisma.payment.delete({ where: { id: pay.id } });
-    await refreshInvoiceStatus(pay.orderId);
+    await voidCustomerPayment(approval.entityId, userId);
   }
   if (approval.type === "DELETE_CUSTOMER") {
     const used = await prisma.order.count({ where: { customerId: approval.entityId } });

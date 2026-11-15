@@ -707,7 +707,7 @@ ordersRouter.post("/:id/payments", moduleAccess("finance"), async (req, res) => 
     data: { orderId: order.id, method, amount, reference, userId: req.user!.id },
   });
   const docNo = order.invoice?.number || order.invoiceNumber || order.number;
-  await postPayment({ orderId: order.id, number: docNo, method, amount, userId: req.user!.id });
+  await postPayment({ orderId: order.id, number: docNo, method, amount, userId: req.user!.id, paymentId: pay.id });
   await refreshInvoiceStatus(order.id);
   await recordActivity(req, {
     entity: "Payment",

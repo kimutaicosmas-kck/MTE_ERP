@@ -94,6 +94,12 @@ export async function postSale(order: {
   });
 }
 
+export function cashAccountForMethod(method: string) {
+  if (method === "MPESA") return "1010";
+  if (method === "BANK" || method === "CHEQUE") return "1020";
+  return "1000";
+}
+
 export async function postPayment(input: {
   orderId: string;
   number: string;
@@ -101,6 +107,7 @@ export async function postPayment(input: {
   amount: number;
   userId?: string;
   date?: Date;
+  paymentId?: string;
 }) {
   if (input.method === "CREDIT_NOTE") {
     return postJournal({
@@ -115,16 +122,14 @@ export async function postPayment(input: {
       ],
     });
   }
-  const cashCode =
-    input.method === "MPESA" ? "1010" : input.method === "BANK" || input.method === "CHEQUE" ? "1020" : "1000";
   return postJournal({
     memo: `Payment ${input.number} ${input.method}`,
     source: "PAYMENT",
-    sourceId: input.orderId,
+    sourceId: input.paymentId || input.orderId,
     userId: input.userId,
     date: input.date,
     lines: [
-      { code: cashCode, debit: input.amount },
+      { code: cashAccountForMethod(input.method), debit: input.amount },
       { code: "1100", credit: input.amount },
     ],
   });

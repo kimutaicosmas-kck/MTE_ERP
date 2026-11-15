@@ -2,10 +2,11 @@ import { Router } from "express";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/audit.js";
 import { recordActivity } from "../lib/activity.js";
-import { postExpense, postJournal, postPayment, postVendorPayment, reverseJournal } from "../lib/ledger.js";
+import { postExpense, postJournal, postVendorPayment, reverseJournal } from "../lib/ledger.js";
+import { voidCustomerPayment } from "../lib/void-payment.js";
 import { applyInvoicePayment } from "../lib/pay-invoice.js";
 import { orderMoneyTotals } from "../lib/vat-totals.js";
-import { listInvoices, refreshInvoiceStatus, repairInvoiceRegistry, sumOutstandingInvoiceBalances } from "../lib/invoice.js";
+import { listInvoices, repairInvoiceRegistry, sumOutstandingInvoiceBalances } from "../lib/invoice.js";
 import { queueApproval } from "../lib/approval-request.js";
 import { syncCoaCatalog } from "../lib/sync-coa.js";
 import { roles, moduleAccess } from "../middleware/auth.js";
@@ -135,7 +136,7 @@ financeRouter.post("/invoices/:id/pay", async (req, res) => {
   }
 });
 
-/** Record full balance on one or more open invoices (simple finance desk flow). */
+/** Record a full or partial receipt. Amount is applied in selection order; the rest stays open. */
 financeRouter.post("/payments/record", async (req, res) => {
   const rawIds = req.body.invoiceIds;
   const invoiceIds = Array.isArray(rawIds) ? [...new Set(rawIds.map((id) => String(id)).filter(Boolean))] : [];
@@ -145,21 +146,39 @@ financeRouter.post("/payments/record", async (req, res) => {
   const reference = req.body.reference ? String(req.body.reference).trim() : null;
   if (method === "MPESA" && !reference) return res.status(400).json({ error: "M-Pesa reference required" });
   const paidAt = req.body.paidAt ? new Date(String(req.body.paidAt)) : new Date();
+  const hasAmount = req.body.amount != null && req.body.amount !== "";
+  const requested = hasAmount ? Math.round(Number(req.body.amount) * 100) / 100 : null;
+  if (requested != null && (!Number.isFinite(requested) || requested <= 0)) {
+    return res.status(400).json({ error: "Enter an amount greater than zero" });
+  }
+
+  const plan: { invoiceId: string; amount: number }[] = [];
+  let remaining = requested ?? 0;
+  for (const invoiceId of invoiceIds) {
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      include: { order: { include: { lines: true, payments: true } } },
+    });
+    if (!invoice) return res.status(404).json({ error: `Invoice not found (${invoiceId})` });
+    const balance = Math.round(orderMoneyTotals(invoice.order).balance * 100) / 100;
+    if (balance <= 0.01) continue;
+    const take = requested == null ? balance : Math.min(balance, remaining);
+    if (take <= 0.01) continue;
+    plan.push({ invoiceId, amount: Math.round(take * 100) / 100 });
+    if (requested != null) remaining = Math.round((remaining - take) * 100) / 100;
+  }
+  if (!plan.length) return res.status(400).json({ error: "No open balance on selected invoices" });
+  if (requested != null && remaining > 0.02) {
+    return res.status(400).json({ error: "Amount is more than the open balance on the selected invoices" });
+  }
 
   const results: Awaited<ReturnType<typeof applyInvoicePayment>>[] = [];
   try {
-    for (const invoiceId of invoiceIds) {
-      const invoice = await prisma.invoice.findUnique({
-        where: { id: invoiceId },
-        include: { order: { include: { lines: true, payments: true } } },
-      });
-      if (!invoice) return res.status(404).json({ error: `Invoice not found (${invoiceId})` });
-      const balance = orderMoneyTotals(invoice.order).balance;
-      if (balance <= 0.01) continue;
+    for (const item of plan) {
       results.push(
         await applyInvoicePayment({
-          invoiceId,
-          amount: balance,
+          invoiceId: item.invoiceId,
+          amount: item.amount,
           method,
           reference,
           userId: req.user!.id,
@@ -168,7 +187,6 @@ financeRouter.post("/payments/record", async (req, res) => {
         }),
       );
     }
-    if (!results.length) return res.status(400).json({ error: "No open balance on selected invoices" });
     res.status(201).json({
       ok: true,
       count: results.length,
@@ -364,20 +382,12 @@ financeRouter.post("/payments/:id/void", async (req, res) => {
     newValue: { voided: true },
     reason: String(req.body?.reason || "Void payment"),
   })) return;
-  const order = await prisma.order.findUnique({ where: { id: pay.orderId }, include: { invoice: true } });
-  const cashCode = pay.method === "MPESA" ? "1010" : pay.method === "BANK" ? "1020" : "1000";
-  await postJournal({
-    memo: `Void payment ${order?.invoice?.number || order?.number || pay.id}`,
-    source: "REVERSAL",
-    sourceId: pay.id,
-    userId: req.user!.id,
-    lines: [
-      { code: "1100", debit: pay.amount },
-      { code: cashCode, credit: pay.amount },
-    ],
-  });
-  await prisma.payment.delete({ where: { id: pay.id } });
-  await refreshInvoiceStatus(pay.orderId);
+  try {
+    await voidCustomerPayment(pay.id, req.user!.id);
+  } catch (err) {
+    const status = Number((err as { status?: number }).status) || 400;
+    return res.status(status).json({ error: err instanceof Error ? err.message : "Void failed" });
+  }
   await audit(req, { entity: "Payment", entityId: pay.id, action: "DELETE", oldValue: pay, reason: req.body?.reason });
   res.json({ ok: true });
 });

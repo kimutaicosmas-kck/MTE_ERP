@@ -213,10 +213,10 @@ async function main() {
         if (payShare > 0) {
           const amount = Math.round(gross * payShare);
           const method = pick(PAY, made);
-          await prisma.payment.create({
+          const pay = await prisma.payment.create({
             data: { orderId: order.id, method, amount, reference: method === "MPESA" ? `RKT${pad(seq, 6)}` : `BNK-${pad(seq, 4)}`, userId: finance.id, createdAt: new Date(date.getTime() + 86400000) },
           });
-          await postPayment({ orderId: order.id, number, method, amount, userId: finance.id });
+          await postPayment({ orderId: order.id, number, method, amount, userId: finance.id, paymentId: pay.id });
         }
         await refreshInvoiceStatus(order.id);
       }

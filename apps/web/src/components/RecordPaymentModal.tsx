@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Modal, MteSelect } from "./ui";
 import { api, money } from "../lib/api";
 
@@ -25,6 +25,7 @@ export function RecordPaymentModal({ invoices, onClose }: { invoices: PayableInv
   const [reference, setReference] = useState("");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [amount, setAmount] = useState("");
   const [touched, setTouched] = useState(false);
 
   const open = useMemo(() => {
@@ -38,7 +39,19 @@ export function RecordPaymentModal({ invoices, onClose }: { invoices: PayableInv
     () => invoices.filter((inv) => selected.has(inv.id) && inv.totals.balance > 0.01),
     [invoices, selected],
   );
-  const total = selectedList.reduce((s, inv) => s + inv.totals.balance, 0);
+  const total = Math.round(selectedList.reduce((s, inv) => s + inv.totals.balance, 0) * 100) / 100;
+  const selectedKey = selectedList.map((inv) => inv.id).sort().join(",");
+  const selectionKey = useRef("");
+
+  useEffect(() => {
+    if (selectionKey.current === selectedKey) return;
+    selectionKey.current = selectedKey;
+    setAmount(total > 0 ? total.toFixed(2) : "");
+  }, [selectedKey, total]);
+
+  const payAmount = Math.round(Number(amount) * 100) / 100;
+  const amountOk = Number.isFinite(payAmount) && payAmount > 0 && payAmount <= total + 0.02;
+  const partial = amountOk && total - payAmount > 0.02;
 
   const save = useMutation({
     mutationFn: () =>
@@ -47,6 +60,7 @@ export function RecordPaymentModal({ invoices, onClose }: { invoices: PayableInv
         body: JSON.stringify({
           paidAt,
           method,
+          amount: payAmount,
           reference: reference.trim() || undefined,
           invoiceIds: [...selected],
         }),
@@ -79,12 +93,15 @@ export function RecordPaymentModal({ invoices, onClose }: { invoices: PayableInv
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setTouched(true);
-    if (!selected.size || !method) return;
+    if (!selected.size || !method || !amountOk) return;
+    if (method === "MPESA" && !reference.trim()) return;
     save.mutate();
   };
 
   const invoiceErr = touched && selected.size === 0;
   const methodErr = touched && !method;
+  const amountErr = touched && selected.size > 0 && !amountOk;
+  const refErr = touched && method === "MPESA" && !reference.trim();
 
   return (
     <Modal wide onClose={onClose} className="pay-record-modal">
@@ -119,13 +136,54 @@ export function RecordPaymentModal({ invoices, onClose }: { invoices: PayableInv
           </label>
         </div>
 
+        <div className="pay-record-fields">
+          <label className="pay-record-field">
+            <span>Amount received (KES) *</span>
+            <input
+              type="number"
+              inputMode="decimal"
+              min={0.01}
+              step="0.01"
+              max={total || undefined}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0.00"
+              required
+            />
+          </label>
+          <div className="pay-record-amount-actions">
+            <button
+              type="button"
+              className="pay-record-link"
+              disabled={total <= 0}
+              onClick={() => setAmount(total > 0 ? total.toFixed(2) : "")}
+            >
+              Full balance
+            </button>
+            <button
+              type="button"
+              className="pay-record-link"
+              disabled={total <= 0}
+              onClick={() => setAmount(total > 0 ? (Math.round(total * 50) / 100).toFixed(2) : "")}
+            >
+              Half
+            </button>
+          </div>
+        </div>
+        <p className="pay-record-hint">
+          {partial
+            ? `Partial payment. ${money(Math.round((total - payAmount) * 100) / 100)} stays open on the invoice.`
+            : "Defaults to the full balance. Enter less, or tap Half, when the client has only paid part."}
+        </p>
+
         <label className="pay-record-field">
-          <span>Reference</span>
+          <span>Reference{method === "MPESA" ? " *" : ""}</span>
           <input
             value={reference}
             onChange={(e) => setReference(e.target.value)}
-            placeholder="Bank ref / cheque no."
+            placeholder={method === "MPESA" ? "M-Pesa receipt code" : "Bank ref / cheque no."}
             autoComplete="off"
+            required={method === "MPESA"}
           />
         </label>
 
@@ -166,14 +224,17 @@ export function RecordPaymentModal({ invoices, onClose }: { invoices: PayableInv
           </ul>
           {invoiceErr && <p className="pay-record-err">Select one or more invoices</p>}
           {methodErr && <p className="pay-record-err">Select a payment method</p>}
+          {amountErr && <p className="pay-record-err">Enter an amount up to the open balance</p>}
+          {refErr && <p className="pay-record-err">M-Pesa reference required</p>}
           {save.error && <p className="pay-record-err">{(save.error as Error).message}</p>}
         </section>
 
         <footer className="pay-record-foot">
           <span>
-            {selected.size} invoice{selected.size === 1 ? "" : "s"} · one payment
+            {selected.size} invoice{selected.size === 1 ? "" : "s"}
+            {partial ? " · partial" : ""}
           </span>
-          <strong>Total {money(total)}</strong>
+          <strong>{partial ? `Paying ${money(payAmount)}` : `Total ${money(total)}`}</strong>
         </footer>
 
         <div className="pay-record-actions">

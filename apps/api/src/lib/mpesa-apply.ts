@@ -87,7 +87,7 @@ export async function applyMpesaReceipt(input: {
       reference: receipt,
     },
   });
-  await postPayment({ orderId: invoice.orderId, number: invoice.number, method: "MPESA", amount });
+  await postPayment({ orderId: invoice.orderId, number: invoice.number, method: "MPESA", amount, paymentId: pay.id });
   const updated = await refreshInvoiceStatus(invoice.orderId);
   if (input.txnId) {
     await prisma.mpesaTxn.update({

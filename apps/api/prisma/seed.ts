@@ -216,10 +216,12 @@ export async function runSeed() {
   });
 
   const { postSale, postPayment } = await import("../src/lib/ledger.js");
+  const pay1 = await prisma.payment.findFirst({ where: { orderId: o1.id, method: "MPESA" } });
+  const pay2 = await prisma.payment.findFirst({ where: { orderId: o2.id, method: "CASH" } });
   await postSale({ id: o1.id, number: o1.number, vatRate: 0.16, lines: o1.lines }, sales.id);
-  await postPayment({ orderId: o1.id, number: o1.number, method: "MPESA", amount: 20000, userId: sales.id });
+  await postPayment({ orderId: o1.id, number: o1.number, method: "MPESA", amount: 20000, userId: sales.id, paymentId: pay1?.id });
   await postSale({ id: o2.id, number: o2.number, vatRate: 0.16, lines: o2.lines }, sales2.id);
-  await postPayment({ orderId: o2.id, number: o2.number, method: "CASH", amount: 11136, userId: sales2.id });
+  await postPayment({ orderId: o2.id, number: o2.number, method: "CASH", amount: 11136, userId: sales2.id, paymentId: pay2?.id });
 
   await prisma.expense.create({
     data: { category: "Courier", amount: 4500, vat: 720, date: new Date(), notes: "G4S weekly", userId: finance.id },
