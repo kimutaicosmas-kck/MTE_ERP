@@ -4221,3 +4221,170 @@ html.dark .sale-line-warn {
 html.dark .product-master-table tbody tr:hover td {
   background: rgb(255 255 255 / 0.04);
 }
+
+.pay-record-modal.max-w-3xl {
+  max-width: min(38rem, 96vw);
+}
+.pay-record-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.pay-record-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.pay-record-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+@media (max-width: 520px) {
+  .pay-record-fields {
+    grid-template-columns: 1fr;
+  }
+}
+.pay-record-field {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #334155;
+}
+html.dark .pay-record-field {
+  color: #cbd5e1;
+}
+.pay-record-field input[type="date"],
+.pay-record-field input[type="text"] {
+  font-size: 0.9rem;
+}
+.pay-record-invoices {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #f8fafc;
+  padding: 0.65rem 0.75rem 0.5rem;
+  display: grid;
+  gap: 0.5rem;
+}
+html.dark .pay-record-invoices {
+  border-color: rgb(255 255 255 / 0.08);
+  background: rgb(255 255 255 / 0.03);
+}
+.pay-record-invoices-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.pay-record-link {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #2563eb;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.15rem 0.25rem;
+}
+.pay-record-search {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 0.55rem;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+}
+html.dark .pay-record-search {
+  border-color: rgb(255 255 255 / 0.12);
+  background: #121a26;
+}
+.pay-record-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  font-size: 0.88rem;
+  outline: none;
+}
+.pay-record-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 14.5rem;
+  overflow-y: auto;
+  display: grid;
+  gap: 0.35rem;
+}
+.pay-record-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.55rem 0.6rem;
+  border-radius: 0.55rem;
+  border: 1px solid transparent;
+  background: #fff;
+  cursor: pointer;
+}
+.pay-record-row.on {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+html.dark .pay-record-row {
+  background: #0f172a;
+}
+html.dark .pay-record-row.on {
+  border-color: #3b82f6;
+  background: rgb(59 130 246 / 0.12);
+}
+.pay-record-row input {
+  margin-top: 0.2rem;
+}
+.pay-record-row-main {
+  display: grid;
+  gap: 0.1rem;
+  font-size: 0.82rem;
+  color: #475569;
+}
+.pay-record-row-main strong {
+  color: #0f172a;
+  font-weight: 600;
+}
+html.dark .pay-record-row-main strong {
+  color: #f1f5f9;
+}
+.pay-record-empty {
+  padding: 0.75rem;
+  font-size: 0.85rem;
+  color: #64748b;
+  text-align: center;
+}
+.pay-record-err {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #dc2626;
+}
+.pay-record-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.65rem;
+  background: #f1f5f9;
+  font-size: 0.85rem;
+  color: #475569;
+}
+html.dark .pay-record-foot {
+  background: rgb(255 255 255 / 0.06);
+  color: #94a3b8;
+}
+.pay-record-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-top: 0.25rem;
+}

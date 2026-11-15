@@ -3,6 +3,8 @@ import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/audit.js";
 import { recordActivity } from "../lib/activity.js";
 import { postExpense, postJournal, postPayment, postVendorPayment, reverseJournal } from "../lib/ledger.js";
+import { applyInvoicePayment } from "../lib/pay-invoice.js";
+import { orderMoneyTotals } from "../lib/vat-totals.js";
 import { listInvoices, refreshInvoiceStatus, repairInvoiceRegistry, sumOutstandingInvoiceBalances } from "../lib/invoice.js";
 import { queueApproval } from "../lib/approval-request.js";
 import { syncCoaCatalog } from "../lib/sync-coa.js";
@@ -115,34 +117,68 @@ financeRouter.get("/invoices", async (_req, res) => {
 });
 
 financeRouter.post("/invoices/:id/pay", async (req, res) => {
-  const invoice = await prisma.invoice.findUnique({
-    where: { id: req.params.id },
-    include: { order: { include: { lines: true, payments: true } } },
-  });
-  if (!invoice) return res.status(404).json({ error: "Invoice not found" });
-  const amount = Number(req.body.amount);
-  const method = String(req.body.method || "CASH");
-  const reference = req.body.reference ? String(req.body.reference) : null;
-  if (!amount || amount <= 0) return res.status(400).json({ error: "Amount required" });
+  try {
+    const paidAt = req.body.paidAt ? new Date(String(req.body.paidAt)) : undefined;
+    const result = await applyInvoicePayment({
+      invoiceId: req.params.id,
+      amount: Number(req.body.amount),
+      method: String(req.body.method || "CASH"),
+      reference: req.body.reference ? String(req.body.reference) : null,
+      userId: req.user!.id,
+      paidAt,
+      req,
+    });
+    res.status(201).json(result);
+  } catch (err) {
+    const status = (err as { status?: number }).status || 400;
+    res.status(status).json({ error: (err as Error).message });
+  }
+});
+
+/** Record full balance on one or more open invoices (simple finance desk flow). */
+financeRouter.post("/payments/record", async (req, res) => {
+  const rawIds = req.body.invoiceIds;
+  const invoiceIds = Array.isArray(rawIds) ? [...new Set(rawIds.map((id) => String(id)).filter(Boolean))] : [];
+  if (!invoiceIds.length) return res.status(400).json({ error: "Select one or more invoices" });
+  const method = String(req.body.method || "").trim().toUpperCase();
+  if (!method) return res.status(400).json({ error: "Payment method required" });
+  const reference = req.body.reference ? String(req.body.reference).trim() : null;
   if (method === "MPESA" && !reference) return res.status(400).json({ error: "M-Pesa reference required" });
-  const pay = await prisma.payment.create({
-    data: { orderId: invoice.orderId, method, amount, reference, userId: req.user!.id },
-  });
-  await postPayment({ orderId: invoice.orderId, number: invoice.number, method, amount, userId: req.user!.id });
-  const updated = await refreshInvoiceStatus(invoice.orderId);
-  await recordActivity(req, {
-    entity: "Payment",
-    entityId: pay.id,
-    action: "CREATE",
-    newValue: { invoice: invoice.number, amount, method },
-    notice: {
-      title: "Payment received",
-      body: `${moneyLabel(amount)} on invoice ${invoice.number} (${method}).`,
-      url: "/finance?section=ar",
-    },
-    notifyModules: ["finance", "sales"],
-  });
-  res.status(201).json({ payment: pay, invoice: updated });
+  const paidAt = req.body.paidAt ? new Date(String(req.body.paidAt)) : new Date();
+
+  const results: Awaited<ReturnType<typeof applyInvoicePayment>>[] = [];
+  try {
+    for (const invoiceId of invoiceIds) {
+      const invoice = await prisma.invoice.findUnique({
+        where: { id: invoiceId },
+        include: { order: { include: { lines: true, payments: true } } },
+      });
+      if (!invoice) return res.status(404).json({ error: `Invoice not found (${invoiceId})` });
+      const balance = orderMoneyTotals(invoice.order).balance;
+      if (balance <= 0.01) continue;
+      results.push(
+        await applyInvoicePayment({
+          invoiceId,
+          amount: balance,
+          method,
+          reference,
+          userId: req.user!.id,
+          paidAt,
+          req,
+        }),
+      );
+    }
+    if (!results.length) return res.status(400).json({ error: "No open balance on selected invoices" });
+    res.status(201).json({
+      ok: true,
+      count: results.length,
+      total: Math.round(results.reduce((s, r) => s + r.payment.amount, 0) * 100) / 100,
+      payments: results,
+    });
+  } catch (err) {
+    const status = (err as { status?: number }).status || 400;
+    res.status(status).json({ error: (err as Error).message });
+  }
 });
 
 function moneyLabel(n: number) {

@@ -3,6 +3,7 @@ import { Banknote, FileDown, Landmark, Package, Plus, Receipt, Scale, Search, Tr
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { StkPrompt } from "../components/StkPrompt";
+import { RecordPaymentModal } from "../components/RecordPaymentModal";
 import { MobileFilters } from "../components/filters";
 import { Register, useListSort } from "../components/register";
 import { EmptyRow, ExportButtons, Modal, MteSelect, PageHeader, Pager, RowPdf, Stat, StatGrid, mapSelectOptions, useQueryState } from "../components/ui";
@@ -297,13 +298,8 @@ export function Finance() {
           onClose={() => setModal(null)}
         />
       )}
-      {(modal === "pay" || modal === "credit") && (
-        <MoneyModal
-          kind={modal}
-          invoices={unpaid}
-          onClose={() => setModal(null)}
-        />
-      )}
+      {modal === "pay" && <RecordPaymentModal invoices={unpaid} onClose={() => setModal(null)} />}
+      {modal === "credit" && <MoneyModal kind="credit" invoices={unpaid} onClose={() => setModal(null)} />}
     </div>
   );
 }

@@ -12,6 +12,7 @@ export async function postJournal(input: {
   source: string;
   sourceId?: string;
   userId?: string;
+  date?: Date;
   lines: { code: string; debit?: number; credit?: number }[];
 }) {
   const debit = input.lines.reduce((s, l) => s + (l.debit || 0), 0);
@@ -35,8 +36,10 @@ export async function postJournal(input: {
         credit: round(l.credit || 0),
       }))
   );
+  const journalDate = input.date && !Number.isNaN(+input.date) ? input.date : new Date();
   return prisma.journal.create({
     data: {
+      date: journalDate,
       memo: input.memo,
       source: input.source,
       sourceId: input.sourceId,
@@ -97,6 +100,7 @@ export async function postPayment(input: {
   method: string;
   amount: number;
   userId?: string;
+  date?: Date;
 }) {
   if (input.method === "CREDIT_NOTE") {
     return postJournal({
@@ -104,6 +108,7 @@ export async function postPayment(input: {
       source: "CREDIT_NOTE",
       sourceId: input.orderId,
       userId: input.userId,
+      date: input.date,
       lines: [
         { code: "4000", debit: input.amount },
         { code: "1100", credit: input.amount },
@@ -111,12 +116,13 @@ export async function postPayment(input: {
     });
   }
   const cashCode =
-    input.method === "MPESA" ? "1010" : input.method === "BANK" ? "1020" : "1000";
+    input.method === "MPESA" ? "1010" : input.method === "BANK" || input.method === "CHEQUE" ? "1020" : "1000";
   return postJournal({
     memo: `Payment ${input.number} ${input.method}`,
     source: "PAYMENT",
     sourceId: input.orderId,
     userId: input.userId,
+    date: input.date,
     lines: [
       { code: cashCode, debit: input.amount },
       { code: "1100", credit: input.amount },
