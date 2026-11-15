@@ -6,7 +6,8 @@ const DEFAULT_TAGLINE =
 
 function lineLabel(l: { sku?: string; name: string }) {
   if (!l.name || l.name === "—") return "—";
-  return [l.sku, l.name].filter(Boolean).join(" ");
+  if (l.sku) return `${l.sku} — ${l.name}`;
+  return l.name;
 }
 
 export function DocPaper({ doc }: { doc: DocModel }) {

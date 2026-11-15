@@ -3,8 +3,12 @@
  * MTE ERP end-to-end API smoke test
  * Usage: node scripts/e2e-test.mjs [baseUrl]
  */
-const BASE = process.argv[2] || "http://localhost:4000";
-const WEB = process.argv[3] || "http://localhost:5173";
+function normalizeApiBase(raw) {
+  const u = (raw || "http://localhost:4000").replace(/\/+$/, "");
+  return u.replace(/\/api$/i, "");
+}
+const BASE = normalizeApiBase(process.argv[2] || "http://localhost:4000");
+const WEB = (process.argv[3] || "http://localhost:5173").replace(/\/+$/, "");
 const PASS = "Mte@2026";
 const LOAD_TEST_KEY = process.env.LOAD_TEST_KEY || "mte-local-load-key";
 
@@ -191,6 +195,52 @@ async function main() {
       else log("WARN", "Documents", `Delivery PDF ${pdf.status}`);
     }
   }
+
+  // Inventory / multi-store (after deploy)
+  const wh = await req("/api/inventory/warehouses", { token: admin });
+  if (wh.ok && Array.isArray(wh.body)) {
+    log("PASS", "Inventory", `${wh.body.length} warehouse site(s)`);
+    const main = wh.body.find((w) => w.code === "MAIN") || wh.body[0];
+    const parts = await req("/api/parts", { token: admin });
+    const sample = parts.ok && parts.body?.[0];
+    if (sample?.siteStocks) {
+      const total = sample.siteStocks.reduce((s, r) => s + r.qtyOnHand, 0);
+      if (Math.abs((sample.qtyOnHand || 0) - total) < 0.01) {
+        log("PASS", "Stock", "Part site balances sum to company total");
+      } else {
+        log("WARN", "Stock", `siteStocks sum ${total} ≠ part.qtyOnHand ${sample.qtyOnHand}`);
+      }
+    } else {
+      log("WARN", "Stock", "siteStocks missing on /api/parts — run prisma db push and latest API");
+    }
+    const cust = await req("/api/customers", { token: admin });
+    const cid = cust.ok && cust.body?.[0]?.id;
+    if (main?.id && sample?.id && cid) {
+      const badOrder = await req("/api/orders", {
+        method: "POST",
+        token: tokens.sales || admin,
+        body: JSON.stringify({
+          channel: "SHOP",
+          customerId: cid,
+          saleLocation: main.name,
+          warehouseSiteId: main.id,
+          lines: [{ partId: sample.id, qty: 1, pickLocation: sample.binLocation || "MAIN-A-01-01" }],
+        }),
+      });
+      if (badOrder.status === 201) log("PASS", "Sales", "POST /api/orders accepts warehouseSiteId");
+      else if (badOrder.status === 400 || badOrder.status === 403) {
+        log("WARN", "Sales", `Order create ${badOrder.status}: ${badOrder.body?.error || ""}`);
+      } else {
+        log("FAIL", "Sales", `Order create → ${badOrder.status} ${badOrder.body?.error || ""}`);
+      }
+    }
+  } else {
+    log("WARN", "Inventory", `warehouses ${wh.status}`);
+  }
+
+  const noAuth = await req("/api/parts");
+  if (noAuth.status === 401) log("PASS", "Security", "Unauthenticated /api/parts blocked");
+  else log("FAIL", "Security", `Anonymous /api/parts → ${noAuth.status}`);
 
   // Logout
   const logout = await req("/api/auth/logout", { method: "POST", token: admin });

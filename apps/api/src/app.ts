@@ -38,7 +38,16 @@ export function createApp() {
   const app = express();
   trustProxy(app);
   app.use(securityHeaders);
-  app.use(cors({ origin: true, credentials: true }));
+  const corsOrigins = process.env.CORS_ORIGINS?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  app.use(
+    cors(
+      corsOrigins?.length
+        ? { origin: corsOrigins, credentials: true }
+        : { origin: true, credentials: true },
+    ),
+  );
   app.use(express.json({ limit: "2mb", strict: true }));
   app.use("/api", requireJson);
   app.use(blockBadPaths);

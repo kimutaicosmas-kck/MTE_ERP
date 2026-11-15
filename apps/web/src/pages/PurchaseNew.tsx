@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { MteSelect, PageHeader, mapSelectOptions } from "../components/ui";
 import { api } from "../lib/api";
+import { partSelectHint, partSelectLabel } from "../lib/part-catalog";
 
 export function PurchaseNew() {
   const nav = useNavigate();
@@ -47,7 +48,8 @@ export function PurchaseNew() {
     [vendors.data],
   );
   const partOptions = useMemo(
-    () => mapSelectOptions(parts.data || [], (p) => p.id, (p) => `${p.sku} · ${p.name}`),
+    () =>
+      mapSelectOptions(parts.data || [], (p) => p.id, (p) => partSelectLabel(p), (p) => partSelectHint(p)),
     [parts.data],
   );
 

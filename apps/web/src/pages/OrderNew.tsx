@@ -7,7 +7,16 @@ import { DocPreview } from "../components/DocPreview";
 import { MteSelect, PageHeader, mapSelectOptions } from "../components/ui";
 import { api, money } from "../lib/api";
 import type { DocModel } from "../lib/doc-style";
-import { flattenWarehouseBins, type WarehouseTree } from "../lib/warehouse-bins";
+import {
+  binBelongsToStore,
+  defaultPickLocation,
+  partNumber,
+  partSelectHint,
+  partSelectLabel,
+  qtyAtStore,
+  storeCodeFromBinPath,
+} from "../lib/part-catalog";
+import { flattenWarehouseBinsForSite, type WarehouseTree } from "../lib/warehouse-bins";
 
 type SaleLine = { partId: string; qty: number; salePrice?: number; pickLocation: string };
 
@@ -45,7 +54,7 @@ export function OrderNew() {
   const save = useMutation({
     mutationFn: async (asQuote: boolean) => {
       const site = warehouses.data?.find((w) => w.id === warehouseSiteId);
-      if (!site) throw new Error("Select the store or warehouse where stock is held");
+      if (!site) throw new Error("Select the branch or store fulfilling this sale");
       const o = await api<{ id: string; offline?: boolean }>("/api/orders", {
         method: "POST",
         body: JSON.stringify({
@@ -53,6 +62,7 @@ export function OrderNew() {
           customerId,
           branchId: branchId || undefined,
           saleLocation: storeLocationLabel(site),
+          warehouseSiteId,
           dispatchMethod,
           lpo: lpo || undefined,
           validDays: asQuote ? validDays : undefined,
@@ -77,15 +87,17 @@ export function OrderNew() {
     () => mapSelectOptions(customers.data || [], (c) => c.id, (c) => c.name, (c) => c.phone || undefined),
     [customers.data],
   );
+  const saleStore = warehouses.data?.find((w) => w.id === warehouseSiteId);
+  const saleStoreCode = saleStore?.code || "";
   const partOptions = useMemo(
     () =>
       mapSelectOptions(
         parts.data || [],
         (p) => p.id,
-        (p) => `${p.sku} · ${p.name}`,
-        (p) => `${p.qtyOnHand} in stock`,
+        (p) => partSelectLabel(p),
+        (p) => partSelectHint(p, warehouseSiteId, saleStoreCode),
       ),
-    [parts.data],
+    [parts.data, warehouseSiteId, saleStoreCode],
   );
   const customer = customers.data?.find((c) => c.id === customerId);
   const credit = useQuery({
@@ -124,7 +136,9 @@ export function OrderNew() {
     lines: lines
       .map((l) => {
         const p = parts.data?.find((x) => x.id === l.partId);
-        return p ? { sku: p.sku, name: p.name, qty: l.qty, price: lineUnitPrice(l) } : null;
+        return p
+          ? { sku: partNumber(p), name: p.name, qty: l.qty, price: lineUnitPrice(l) }
+          : null;
       })
       .filter(Boolean) as DocModel["lines"],
   }), [saveAsQuote, customer, company, intro, validDays, lpo, dispatchMethod, lines, parts.data]);
@@ -137,7 +151,11 @@ export function OrderNew() {
     () => mapSelectOptions(warehouses.data || [], (s) => s.id, (s) => s.name, (s) => `${s.code}${s.address ? ` · ${s.address}` : ""}`),
     [warehouses.data],
   );
-  const binRows = useMemo(() => flattenWarehouseBins(warehouses.data || []), [warehouses.data]);
+  const binRows = useMemo(
+    () => flattenWarehouseBinsForSite(warehouses.data || [], warehouseSiteId),
+    [warehouses.data, warehouseSiteId],
+  );
+  const siteBinPaths = useMemo(() => binRows.map((b) => b.path), [binRows]);
   const binOptions = useMemo(
     () => mapSelectOptions(binRows, (b) => b.path, (b) => b.path, (b) => b.hint),
     [binRows],
@@ -151,7 +169,7 @@ export function OrderNew() {
         ...next[i],
         partId,
         salePrice: undefined,
-        pickLocation: catalog?.binLocation || next[i].pickLocation || "",
+        pickLocation: defaultPickLocation(catalog, saleStoreCode, siteBinPaths),
       };
       return next;
     });
@@ -161,6 +179,18 @@ export function OrderNew() {
     if (warehouseSiteId || !warehouses.data?.length) return;
     if (warehouses.data.length === 1) setWarehouseSiteId(warehouses.data[0].id);
   }, [warehouses.data, warehouseSiteId]);
+
+  useEffect(() => {
+    if (!saleStoreCode) return;
+    setLines((prev) =>
+      prev.map((line) => {
+        if (!line.pickLocation) return line;
+        if (binBelongsToStore(line.pickLocation, saleStoreCode)) return line;
+        const catalog = parts.data?.find((x) => x.id === line.partId);
+        return { ...line, pickLocation: defaultPickLocation(catalog, saleStoreCode, siteBinPaths) };
+      }),
+    );
+  }, [saleStoreCode, siteBinPaths, parts.data]);
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -312,7 +342,8 @@ export function OrderNew() {
                 searchable
               />
               <p className="sale-details-meta">
-                Overall store for this sale. Enter each item&apos;s bin location on the product lines below.
+                Each store keeps its own quantity. Sales deduct from this store. Use Inventory → transfer to move stock
+                between stores (qty down at source, up at destination).
               </p>
             </div>
           </div>
@@ -332,6 +363,10 @@ export function OrderNew() {
               const catalog = parts.data?.find((x) => x.id === l.partId);
               const unit = lineUnitPrice(l);
               const uplift = catalog && unit > catalog.salePrice ? unit - catalog.salePrice : 0;
+              const catalogBinOtherStore =
+                catalog?.binLocation &&
+                saleStoreCode &&
+                !binBelongsToStore(catalog.binLocation, saleStoreCode);
               return (
                 <div key={i} className="sale-line-card">
                   <div className="sale-line-card-head">
@@ -348,34 +383,42 @@ export function OrderNew() {
                     )}
                   </div>
                   <div className="sale-line-field">
-                    <label>Product</label>
+                    <label>Part no / product</label>
                     <MteSelect
-                      aria-label="Product"
+                      aria-label="Part number or product"
                       value={l.partId}
                       onChange={(partId) => setLinePart(i, partId)}
                       options={partOptions}
-                      placeholder="Choose product…"
+                      placeholder="Search by part no or description…"
                       required={i === 0}
                       searchable
                     />
                     {catalog ? (
-                      <p className="sale-line-meta">
-                        <span className="font-mono">{catalog.sku}</span>
-                        <span aria-hidden> · </span>
-                        {catalog.oemNumber}
-                        <span aria-hidden> · </span>
-                        <span className="sale-line-badge">{catalog.category}</span>
-                        <span aria-hidden> · </span>
-                        {catalog.qtyOnHand} in stock
+                      <>
+                        <p className="sale-line-meta">
+                          <span className="font-mono font-semibold text-slate-700 dark:text-slate-200">
+                            {partNumber(catalog)}
+                          </span>
+                          <span aria-hidden> — </span>
+                          {catalog.name}
+                          <span aria-hidden> · </span>
+                          <span className="sale-line-badge">{catalog.category}</span>
+                          <span aria-hidden> · </span>
+                          {qtyAtStore(catalog, warehouseSiteId) ?? "—"} at this store · {catalog.qtyOnHand} company
+                            total
+                        </p>
                         {catalog.binLocation ? (
-                          <>
-                            <span aria-hidden> · </span>
-                            Bin {catalog.binLocation}
-                          </>
+                          <p className={`sale-line-meta ${catalogBinOtherStore ? "sale-line-warn" : ""}`}>
+                            {catalogBinOtherStore
+                              ? `Master bin ${catalog.binLocation} (${storeCodeFromBinPath(catalog.binLocation)} store) — choose the bin in ${saleStore?.name || saleStoreCode} after a transfer.`
+                              : `Master bin ${catalog.binLocation}`}
+                          </p>
                         ) : null}
-                      </p>
+                      </>
                     ) : (
-                      <p className="sale-line-meta">Search or scroll the list to choose a product.</p>
+                      <p className="sale-line-meta">
+                        Same description can map to different part numbers — search by part no (e.g. 9T7774).
+                      </p>
                     )}
                   </div>
                   <div className="sale-line-row">

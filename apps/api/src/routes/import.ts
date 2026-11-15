@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/audit.js";
 import { hashPassword } from "../lib/auth.js";
 import { cell, flag, num, parseCsv } from "../lib/csv.js";
+import { adjustSiteQty, defaultWarehouseSiteId, resolveWarehouseSiteIdFromBinPath } from "../lib/site-stock.js";
 import { moduleAccess } from "../middleware/auth.js";
 import { ROLE_MODULES } from "../lib/access.js";
 
@@ -108,7 +109,8 @@ importRouter.post("/parts", moduleAccess("inventory"), async (req, res) => {
           await prisma.partCompat.create({ data: { partId: existing.id, machineBrand: brand, machineModel: model } });
         }
         if (canQty && qty > 0 && existing.qtyOnHand === 0) {
-          await prisma.part.update({ where: { id: existing.id }, data: { qtyOnHand: qty } });
+          const siteId = await resolveWarehouseSiteIdFromBinPath(data.binLocation || existing.binLocation);
+          await adjustSiteQty(existing.id, siteId, qty, { binLocation: data.binLocation || existing.binLocation });
           await prisma.stockMovement.create({
             data: { partId: existing.id, type: "OPENING", qty, reason: "Bulk import opening stock", userId: req.user!.id },
           });
@@ -117,12 +119,21 @@ importRouter.post("/parts", moduleAccess("inventory"), async (req, res) => {
         }
         result.updated++;
       } else {
+        const siteId = await resolveWarehouseSiteIdFromBinPath(data.binLocation);
+        const openingQty = canQty && qty > 0 ? qty : 0;
         const part = await prisma.part.create({
           data: {
             sku,
             ...data,
-            qtyOnHand: canQty && qty > 0 ? qty : 0,
+            qtyOnHand: openingQty,
             compat: brand ? { create: [{ machineBrand: brand, machineModel: model }] } : undefined,
+            siteStocks: {
+              create: {
+                warehouseSiteId: siteId,
+                qtyOnHand: openingQty,
+                binLocation: data.binLocation,
+              },
+            },
           },
         });
         if (canQty && qty > 0) {

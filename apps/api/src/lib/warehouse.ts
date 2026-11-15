@@ -62,6 +62,8 @@ export async function syncLegacyPartBins() {
 
 export async function loadWarehousesTree() {
   await syncLegacyPartBins();
+  const { backfillPartSiteStock } = await import("./site-stock.js");
+  await backfillPartSiteStock();
   return prisma.warehouseSite.findMany({
     where: { active: true },
     orderBy: { code: "asc" },

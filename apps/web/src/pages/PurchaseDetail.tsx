@@ -4,6 +4,7 @@ import { ActivityTimeline } from "../components/ActivityTimeline";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MteSelect, PageHeader, RowPdf, mapSelectOptions } from "../components/ui";
 import { api, downloadPurchasePdf, money } from "../lib/api";
+import { partSelectHint, partSelectLabel } from "../lib/part-catalog";
 import type { Purchase } from "./Procurement";
 
 type Detail = Purchase & {
@@ -251,7 +252,8 @@ function DraftEditor({ purchase }: { purchase: Detail }) {
     [vendors.data],
   );
   const partOptions = useMemo(
-    () => mapSelectOptions(parts.data || [], (p) => p.id, (p) => `${p.sku} · ${p.name}`),
+    () =>
+      mapSelectOptions(parts.data || [], (p) => p.id, (p) => partSelectLabel(p), (p) => partSelectHint(p)),
     [parts.data],
   );
 

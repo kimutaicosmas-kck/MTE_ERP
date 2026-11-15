@@ -18,6 +18,7 @@ import { packDocStyle, shareTokenFor, unpackDocStyle } from "../lib/doc-style.js
 import { assertCreditAllowed } from "../lib/credit.js";
 import { zEntityId, zOptionalText, zText } from "../lib/sanitize.js";
 import { canDispatchTransition, DISPATCH_METHODS, DISPATCH_PRIORITIES, isDispatchStep } from "../lib/dispatch-workflow.js";
+import { adjustSiteQty, getSiteQty, saleWarehouseSiteIdForOrder } from "../lib/site-stock.js";
 import { orderMoneyTotals } from "../lib/vat-totals.js";
 
 export const ordersRouter = Router();
@@ -181,6 +182,7 @@ const createBody = z.object({
   customerId: zEntityId(),
   branchId: zEntityId().optional(),
   saleLocation: zText(200),
+  warehouseSiteId: zEntityId(),
   dispatchMethod: z.enum(["SHOP_COLLECT", "COURIER"]).optional(),
   tracking: zOptionalText(80),
   lpo: zOptionalText(80),
@@ -211,6 +213,7 @@ function packedNotes(data: z.infer<typeof createBody>) {
     intro: data.intro || data.notes || "",
     notes: data.notes || data.intro || "",
     saleLocation: data.saleLocation,
+    saleWarehouseSiteId: data.warehouseSiteId,
   });
 }
 
@@ -372,22 +375,26 @@ async function convertQuotation(order: SaleOrder, userId: string, role: string) 
   }
   const gross = totals(order).gross;
   await assertCreditAllowed(order.customerId, gross, role);
+  const warehouseSiteId = await saleWarehouseSiteIdForOrder(order.notes);
+  const site = await prisma.warehouseSite.findUnique({ where: { id: warehouseSiteId } });
   for (const line of order.lines) {
-    if (line.part.qtyOnHand < line.qty) {
-      throw Object.assign(new Error(`Insufficient stock for ${line.part.sku}`), { status: 400 });
+    const atSite = await getSiteQty(line.partId, warehouseSiteId);
+    if (atSite < line.qty) {
+      const label = site?.name || "this store";
+      throw Object.assign(
+        new Error(`Insufficient stock for ${line.part.oemNumber || line.part.sku} at ${label} (${atSite} on hand)`),
+        { status: 400 },
+      );
     }
   }
   for (const line of order.lines) {
-    await prisma.part.update({
-      where: { id: line.partId },
-      data: { qtyOnHand: { decrement: line.qty } },
-    });
+    await adjustSiteQty(line.partId, warehouseSiteId, -line.qty);
     await prisma.stockMovement.create({
       data: {
         partId: line.partId,
         type: "SALE",
         qty: -line.qty,
-        reference: order.number,
+        reference: `${order.number}${site ? `@${site.code}` : ""}`,
         userId,
       },
     });
@@ -772,14 +779,18 @@ function totals(order: {
   };
 }
 
-async function restoreStock(order: { number: string; lines: { partId: string; qty: number }[] }) {
+async function restoreStock(order: { number: string; notes?: string | null; lines: { partId: string; qty: number }[] }) {
+  const warehouseSiteId = await saleWarehouseSiteIdForOrder(order.notes);
+  const site = await prisma.warehouseSite.findUnique({ where: { id: warehouseSiteId } });
   for (const line of order.lines) {
-    await prisma.part.update({
-      where: { id: line.partId },
-      data: { qtyOnHand: { increment: line.qty } },
-    });
+    await adjustSiteQty(line.partId, warehouseSiteId, line.qty);
     await prisma.stockMovement.create({
-      data: { partId: line.partId, type: "RETURN", qty: line.qty, reference: order.number },
+      data: {
+        partId: line.partId,
+        type: "RETURN",
+        qty: line.qty,
+        reference: `${order.number}${site ? `@${site.code}` : ""}`,
+      },
     });
   }
 }

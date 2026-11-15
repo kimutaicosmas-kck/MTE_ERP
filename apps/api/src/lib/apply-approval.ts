@@ -1,4 +1,5 @@
 import { prisma } from "./prisma.js";
+import { adjustSiteQty, defaultWarehouseSiteId, patchSiteBinForPart } from "./site-stock.js";
 import { postJournal, postStockReceipt, reverseJournal } from "./ledger.js";
 import { refreshInvoiceStatus } from "./invoice.js";
 import { executeSalesReturn } from "./sales-return.js";
@@ -14,7 +15,11 @@ export async function applyApproval(
     if (!part) return;
     const qty = Number(next.qty);
     const type = String(next.type || "ADJUSTMENT");
-    await prisma.part.update({ where: { id: part.id }, data: { qtyOnHand: part.qtyOnHand + qty } });
+    const warehouseSiteId =
+      typeof next.warehouseSiteId === "string" && next.warehouseSiteId
+        ? next.warehouseSiteId
+        : await defaultWarehouseSiteId();
+    await adjustSiteQty(part.id, warehouseSiteId, qty);
     await prisma.stockMovement.create({
       data: { partId: part.id, type, qty, reason: next.reason, userId },
     });
@@ -52,6 +57,9 @@ export async function applyApproval(
   if (approval.type === "EDIT_PART") {
     const part = await prisma.part.findUnique({ where: { id: approval.entityId } });
     if (!part) return;
+    const prev = JSON.parse((approval as { oldValue?: string }).oldValue || "{}");
+    const binLocation =
+      typeof next.binLocation === "string" ? next.binLocation : part.binLocation;
     await prisma.part.update({
       where: { id: part.id },
       data: {
@@ -66,6 +74,13 @@ export async function applyApproval(
         ...(typeof next.salePrice === "number" ? { salePrice: next.salePrice } : {}),
       },
     });
+    if (binLocation !== part.binLocation || next.warehouseBinId !== part.warehouseBinId) {
+      await patchSiteBinForPart(
+        part.id,
+        binLocation,
+        next.warehouseBinId === null ? null : next.warehouseBinId ? String(next.warehouseBinId) : part.warehouseBinId,
+      );
+    }
   }
   if (approval.type === "EDIT_CUSTOMER") {
     await prisma.customer.update({

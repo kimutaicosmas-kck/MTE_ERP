@@ -14,6 +14,7 @@ import { api, money } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { usePager } from "../lib/pager";
 import { PRODUCT_MASTER_HEADERS, productMasterCsvRow } from "../lib/product-master";
+import { storeCodeFromBinPath } from "../lib/part-catalog";
 import { flattenWarehouseBins, type WarehouseTree } from "../lib/warehouse-bins";
 
 const INVENTORY_SECTIONS = [
@@ -47,6 +48,12 @@ type Product = {
   daysIdle: number;
   lowStock: boolean;
   compat: { machineBrand: string; machineModel: string }[];
+  siteStocks?: {
+    warehouseSiteId: string;
+    qtyOnHand: number;
+    binLocation: string;
+    warehouseSite?: { code: string; name: string };
+  }[];
 };
 
 function stockKind(p: Product) {
@@ -438,6 +445,37 @@ function ProductForm({ product, onClose }: { product?: Product; onClose: () => v
     machineModel: product?.compat?.[0]?.machineModel || "",
     reason: "",
   });
+  const storeSites = useMemo(
+    () => (warehouses.data || []).map((s) => ({ id: s.id, code: s.code, name: s.name })),
+    [warehouses.data],
+  );
+  const binSiteId = useMemo(() => {
+    const code = storeCodeFromBinPath(form.binLocation || product?.binLocation || "");
+    return storeSites.find((s) => s.code.toUpperCase() === code)?.id || storeSites[0]?.id || "";
+  }, [form.binLocation, product?.binLocation, storeSites]);
+  const qtyAtBinStore = useMemo(() => {
+    if (!product?.siteStocks?.length || !binSiteId) return form.qtyOnHand;
+    return product.siteStocks.find((s) => s.warehouseSiteId === binSiteId)?.qtyOnHand ?? 0;
+  }, [product?.siteStocks, binSiteId, form.qtyOnHand]);
+  const [transfer, setTransfer] = useState({ toSiteId: "", qty: 1, toBinId: "" });
+  const transferMut = useMutation({
+    mutationFn: () =>
+      api("/api/inventory/transfer", {
+        method: "POST",
+        body: JSON.stringify({
+          partId: product!.id,
+          fromWarehouseSiteId: binSiteId,
+          toWarehouseSiteId: transfer.toSiteId,
+          qty: Number(transfer.qty),
+          ...(transfer.toBinId ? { toWarehouseBinId: transfer.toBinId } : {}),
+        }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["parts"] });
+      setTransfer({ toSiteId: "", qty: 1, toBinId: "" });
+      onClose();
+    },
+  });
   useEffect(() => {
     if (form.warehouseBinId || !form.binLocation || binRows.length === 0) return;
     const match = binRows.find((b) => b.path === form.binLocation);
@@ -474,15 +512,17 @@ function ProductForm({ product, onClose }: { product?: Product; onClose: () => v
           reorderLevel: Number(form.reorderLevel),
         }),
       });
-      const delta = Number(form.qtyOnHand) - product.qtyOnHand;
+      const delta = Number(form.qtyOnHand) - qtyAtBinStore;
       if (canQty && delta !== 0) {
         if (!form.reason.trim()) throw new Error("Reason is required when changing quantity");
+        if (!binSiteId) throw new Error("Cannot determine store for this bin");
         await api(`/api/parts/${product.id}/adjust`, {
           method: "POST",
           body: JSON.stringify({
             qty: delta,
             reason: form.reason.trim(),
             type: delta > 0 ? "RECEIPT" : "ADJUSTMENT",
+            warehouseSiteId: binSiteId,
           }),
         });
       }
@@ -587,14 +627,15 @@ function ProductForm({ product, onClose }: { product?: Product; onClose: () => v
             <input type="number" min={0} value={form.salePrice} onChange={(e) => setForm({ ...form, salePrice: Number(e.target.value) })} required aria-label="Selling price" />
           </MasterRecordCol>
           {product ? (
-            <MasterRecordCol label="On hand">
+            <MasterRecordCol label={`Qty at ${storeSites.find((s) => s.id === binSiteId)?.name || "store"}`}>
               <input
                 type="number"
                 value={form.qtyOnHand}
                 disabled={!canQty}
                 onChange={(e) => setForm({ ...form, qtyOnHand: Number(e.target.value) })}
-                aria-label="Quantity on hand"
+                aria-label="Quantity at store for current bin"
               />
+              <p className="mt-0.5 text-[10px] text-stone-500">Company total: {product.qtyOnHand}</p>
             </MasterRecordCol>
           ) : (
             <MasterRecordCol label="Low stock">
@@ -612,7 +653,73 @@ function ProductForm({ product, onClose }: { product?: Product; onClose: () => v
             </MasterRecordCol>
           </MasterRecordRow>
         )}
-        {product && canQty && Number(form.qtyOnHand) !== product.qtyOnHand && (
+        {product && (product.siteStocks?.length ?? 0) > 0 && (
+          <div className="rounded-lg border border-stone-200 bg-stone-50/80 p-3 text-sm">
+            <h3 className="font-semibold text-ink">Stock by store</h3>
+            <ul className="mt-2 space-y-1">
+              {(product.siteStocks || []).map((s) => (
+                <li key={s.warehouseSiteId} className="flex justify-between gap-2">
+                  <span>{s.warehouseSite?.name || s.warehouseSiteId}</span>
+                  <span className="font-medium tabular-nums">{s.qtyOnHand}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {product && user?.role !== "SALES" && storeSites.length > 1 && (
+          <div className="space-y-2 rounded-lg border border-amber-100 bg-amber-50/50 p-3">
+            <h3 className="font-semibold text-ink">Move stock to another store</h3>
+            <p className="text-xs text-stone-600">
+              From{" "}
+              <strong>{storeSites.find((s) => s.id === binSiteId)?.name || "current bin store"}</strong>. Quantity
+              decreases here and increases at the destination.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <div>
+                <label className="text-xs text-stone-500">To store</label>
+                <MteSelect
+                  aria-label="Destination store"
+                  value={transfer.toSiteId}
+                  onChange={(toSiteId) => setTransfer((t) => ({ ...t, toSiteId }))}
+                  options={storeSites
+                    .filter((s) => s.id !== binSiteId)
+                    .map((s) => ({ value: s.id, label: s.name, hint: s.code }))}
+                  placeholder="Select store…"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-stone-500">Qty to move</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={transfer.qty}
+                  onChange={(e) => setTransfer((t) => ({ ...t, qty: Number(e.target.value) }))}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-stone-500">Destination bin (optional)</label>
+                <MteSelect
+                  aria-label="Destination bin"
+                  value={transfer.toBinId}
+                  onChange={(toBinId) => setTransfer((t) => ({ ...t, toBinId }))}
+                  options={binOptions}
+                  placeholder="Optional…"
+                  allowEmpty
+                />
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn-gold"
+              disabled={!transfer.toSiteId || transfer.qty <= 0 || transferMut.isPending}
+              onClick={() => transferMut.mutate()}
+            >
+              Transfer stock
+            </button>
+            {transferMut.error && <p className="text-sm text-red-600">{(transferMut.error as Error).message}</p>}
+          </div>
+        )}
+        {product && canQty && Number(form.qtyOnHand) !== qtyAtBinStore && (
           <div>
             <label>Qty change reason</label>
             <input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} required placeholder="Why is the quantity changing?" />

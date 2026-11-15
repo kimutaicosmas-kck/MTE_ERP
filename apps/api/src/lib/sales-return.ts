@@ -3,6 +3,7 @@ import { prisma } from "./prisma.js";
 import { postSaleReturn } from "./ledger.js";
 import { nextReturnNumber } from "./sequence.js";
 import { refreshInvoiceStatus } from "./invoice.js";
+import { adjustSiteQty, saleWarehouseSiteIdForOrder } from "./site-stock.js";
 import { computeVatTotals } from "./vat-totals.js";
 
 const body = z.object({
@@ -50,8 +51,9 @@ export async function executeSalesReturn(orderId: string, userId: string, input:
     },
     include: { lines: { include: { part: true } } },
   });
+  const warehouseSiteId = await saleWarehouseSiteIdForOrder(order.notes);
   for (const line of createLines) {
-    await prisma.part.update({ where: { id: line.partId }, data: { qtyOnHand: { increment: line.qty } } });
+    await adjustSiteQty(line.partId, warehouseSiteId, line.qty);
     await prisma.stockMovement.create({
       data: { partId: line.partId, type: "RETURN", qty: line.qty, reference: ret.number, reason: input.reason, userId },
     });

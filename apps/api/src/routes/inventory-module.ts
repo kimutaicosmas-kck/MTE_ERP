@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { prisma } from "../lib/prisma.js";
 import { audit } from "../lib/audit.js";
-import { ensureDefaultWarehouse, loadWarehousesTree, syncLegacyPartBins } from "../lib/warehouse.js";
+import { transferBetweenSites } from "../lib/site-stock.js";
+import { ensureDefaultWarehouse, loadWarehousesTree, resolveBinId, syncLegacyPartBins } from "../lib/warehouse.js";
 import { moduleAccess, roles } from "../middleware/auth.js";
 
 export const inventoryModuleRouter = Router();
@@ -116,4 +117,46 @@ inventoryModuleRouter.post("/zones/:zoneId/bins", roles("SUPER_ADMIN", "ADMIN"),
 inventoryModuleRouter.post("/warehouses/sync-bins", roles("SUPER_ADMIN", "ADMIN"), async (_req, res) => {
   await syncLegacyPartBins();
   res.json({ ok: true });
+});
+
+inventoryModuleRouter.post("/transfer", roles("SUPER_ADMIN", "ADMIN", "WAREHOUSE"), async (req, res) => {
+  const partId = String(req.body.partId || "");
+  const fromWarehouseSiteId = String(req.body.fromWarehouseSiteId || "");
+  const toWarehouseSiteId = String(req.body.toWarehouseSiteId || "");
+  const qty = Number(req.body.qty);
+  if (!partId || !fromWarehouseSiteId || !toWarehouseSiteId) {
+    return res.status(400).json({ error: "partId, fromWarehouseSiteId, and toWarehouseSiteId required" });
+  }
+  let toBinLocation = typeof req.body.toBinLocation === "string" ? req.body.toBinLocation.trim() : "";
+  let toWarehouseBinId: string | null =
+    typeof req.body.toWarehouseBinId === "string" && req.body.toWarehouseBinId ? req.body.toWarehouseBinId : null;
+  if (toWarehouseBinId) {
+    const resolved = await resolveBinId(toWarehouseBinId);
+    if (!resolved) return res.status(400).json({ error: "Invalid destination bin" });
+    toBinLocation = resolved.binLocation;
+    toWarehouseBinId = resolved.id;
+  }
+  const part = await prisma.part.findUnique({ where: { id: partId } });
+  if (!part) return res.status(404).json({ error: "Product not found" });
+  try {
+    const total = await transferBetweenSites({
+      partId,
+      fromWarehouseSiteId,
+      toWarehouseSiteId,
+      qty,
+      toBinLocation: toBinLocation || undefined,
+      toWarehouseBinId,
+      userId: req.user!.id,
+    });
+    await audit(req, {
+      entity: "Part",
+      entityId: partId,
+      action: "TRANSFER_STOCK",
+      newValue: { fromWarehouseSiteId, toWarehouseSiteId, qty, total },
+    });
+    res.json({ ok: true, qtyOnHand: total });
+  } catch (err) {
+    const status = err && typeof err === "object" && "status" in err ? Number((err as { status: number }).status) : 400;
+    res.status(status).json({ error: err instanceof Error ? err.message : "Transfer failed" });
+  }
 });

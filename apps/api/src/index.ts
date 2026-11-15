@@ -1,4 +1,5 @@
 import { createApp } from "./app.js";
+import { assertProductionSecrets } from "./lib/startup-guards.js";
 import { beat } from "./lib/heartbeat.js";
 import { connectRedis } from "./lib/redis.js";
 import { ensureDefaultEndpoint } from "./lib/webhooks.js";
@@ -6,6 +7,7 @@ import { ensureDefaultEndpoint } from "./lib/webhooks.js";
 const port = Number(process.env.PORT || 4000);
 
 async function start() {
+  assertProductionSecrets();
   await connectRedis();
   await ensureDefaultEndpoint();
   const app = createApp();

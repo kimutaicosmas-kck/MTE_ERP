@@ -11,6 +11,8 @@ export type DocStyle = {
   notes?: string;
   /** Store / warehouse where stock is issued from. */
   saleLocation?: string;
+  /** Warehouse site id — stock deducts from this store's balance. */
+  saleWarehouseSiteId?: string;
 };
 
 export function packDocStyle(style: DocStyle) {
@@ -20,6 +22,7 @@ export function packDocStyle(style: DocStyle) {
     intro: style.intro || "",
     notes: style.notes || "",
     saleLocation: style.saleLocation || undefined,
+    saleWarehouseSiteId: style.saleWarehouseSiteId || undefined,
   });
 }
 
@@ -35,6 +38,8 @@ export function unpackDocStyle(raw?: string | null): DocStyle {
         intro: typeof parsed.intro === "string" ? parsed.intro : "",
         notes: typeof parsed.notes === "string" ? parsed.notes : "",
         saleLocation: typeof parsed.saleLocation === "string" ? parsed.saleLocation : "",
+        saleWarehouseSiteId:
+          typeof parsed.saleWarehouseSiteId === "string" ? parsed.saleWarehouseSiteId : undefined,
       };
     }
   } catch {

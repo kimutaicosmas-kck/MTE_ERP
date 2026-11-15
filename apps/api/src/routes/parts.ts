@@ -8,14 +8,23 @@ import { queueApproval } from "../lib/approval-request.js";
 import { postStockReceipt } from "../lib/ledger.js";
 import { emit } from "../lib/webhooks.js";
 import { moduleAccess } from "../middleware/auth.js";
+import {
+  adjustSiteQty,
+  backfillPartSiteStock,
+  defaultWarehouseSiteId,
+  partSiteStockInclude,
+  patchSiteBinForPart,
+  resolveWarehouseSiteIdFromBinPath,
+} from "../lib/site-stock.js";
 import { resolveBinId } from "../lib/warehouse.js";
 
 export const partsRouter = Router();
 partsRouter.use(moduleAccess("inventory", "sales", "procurement", "dispatch", "finance"));
 
 partsRouter.get("/", async (req, res) => {
+  await backfillPartSiteStock();
   const parts = await prisma.part.findMany({
-    include: { compat: true },
+    include: { compat: true, ...partSiteStockInclude() },
     orderBy: { sku: "asc" },
   });
   const withAge = await Promise.all(
@@ -144,6 +153,7 @@ partsRouter.post("/", async (req, res) => {
   }
   if (!binLocation) return res.status(400).json({ error: "Choose a warehouse bin or enter a stock location" });
   const { warehouseBinId: _wb, binLocation: _bl, ...rest } = body.data;
+  const siteId = await resolveWarehouseSiteIdFromBinPath(binLocation);
   const part = await prisma.part.create({
     data: {
       ...rest,
@@ -152,8 +162,16 @@ partsRouter.post("/", async (req, res) => {
       qtyOnHand: 0,
       reorderLevel: body.data.reorderLevel ?? 2,
       compat: { create: body.data.compat || [] },
+      siteStocks: {
+        create: {
+          warehouseSiteId: siteId,
+          qtyOnHand: 0,
+          binLocation,
+          warehouseBinId,
+        },
+      },
     },
-    include: { compat: true },
+    include: { compat: true, ...partSiteStockInclude() },
   });
   await audit(req, { entity: "Part", entityId: part.id, action: "CREATE", newValue: part });
   res.status(201).json(part);
@@ -226,6 +244,9 @@ partsRouter.patch("/:id", async (req, res) => {
     where: { id: existing.id },
     data: proposed,
   });
+  if (proposed.binLocation !== existing.binLocation || proposed.warehouseBinId !== existing.warehouseBinId) {
+    await patchSiteBinForPart(next.id, proposed.binLocation, proposed.warehouseBinId);
+  }
   await audit(req, { entity: "Part", entityId: next.id, action: "UPDATE", oldValue: existing, newValue: next });
   res.json(next);
 });
@@ -259,10 +280,15 @@ partsRouter.post("/:id/adjust", async (req, res) => {
     return res.status(202).json({ pending: true, approval });
   }
 
-  const updated = await prisma.part.update({
-    where: { id: part.id },
-    data: { qtyOnHand: part.qtyOnHand + qty },
+  const warehouseSiteId =
+    typeof req.body.warehouseSiteId === "string" && req.body.warehouseSiteId
+      ? req.body.warehouseSiteId
+      : await defaultWarehouseSiteId();
+  await adjustSiteQty(part.id, warehouseSiteId, qty, {
+    binLocation: part.binLocation,
+    warehouseBinId: part.warehouseBinId,
   });
+  const updated = await prisma.part.findUniqueOrThrow({ where: { id: part.id } });
   await prisma.stockMovement.create({
     data: { partId: part.id, type, qty, reason, reference: req.body.reference, userId: req.user!.id },
   });

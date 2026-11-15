@@ -119,6 +119,7 @@ model Part {
   createdAt     DateTime @default(now())
 
   warehouseBin  WarehouseBin? @relation(fields: [warehouseBinId], references: [id], onDelete: SetNull)
+  siteStocks    PartSiteStock[]
   compat        PartCompat[]
   movements     StockMovement[]
   lines         OrderLine[]
@@ -146,6 +147,24 @@ model StockMovement {
   createdAt DateTime @default(now())
   part      Part     @relation(fields: [partId], references: [id])
   user      User?    @relation(fields: [userId], references: [id])
+}
+
+/** Quantity on hand per store/warehouse — company total on Part is the sum of these rows. */
+model PartSiteStock {
+  id              String   @id @default(cuid())
+  partId          String
+  warehouseSiteId String
+  qtyOnHand       Float    @default(0)
+  binLocation     String   @default("")
+  warehouseBinId  String?
+  updatedAt       DateTime @updatedAt
+
+  part          Part          @relation(fields: [partId], references: [id], onDelete: Cascade)
+  warehouseSite WarehouseSite @relation(fields: [warehouseSiteId], references: [id], onDelete: Cascade)
+  warehouseBin  WarehouseBin? @relation(fields: [warehouseBinId], references: [id], onDelete: SetNull)
+
+  @@unique([partId, warehouseSiteId])
+  @@index([warehouseSiteId])
 }
 
 model Order {
@@ -459,6 +478,7 @@ model WarehouseSite {
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   zones     WarehouseZone[]
+  siteStocks PartSiteStock[]
 }
 
 model WarehouseZone {
@@ -479,6 +499,7 @@ model WarehouseBin {
   label  String?
   zone   WarehouseZone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
   parts  Part[]
+  siteStocks PartSiteStock[]
 
   @@unique([zoneId, code])
 }

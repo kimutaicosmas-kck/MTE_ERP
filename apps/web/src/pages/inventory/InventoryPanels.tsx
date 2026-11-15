@@ -94,7 +94,9 @@ export function InventoryOverview({ dash }: { dash?: InvDash | null }) {
                     {m.part.name}{" "}
                     <span className="font-mono text-xs text-stone-400">{m.part.sku}</span>
                   </td>
-                  <td className="num font-medium">{m.qty > 0 ? `+${m.qty}` : m.qty}</td>
+                  <td className="num font-medium">
+                    {m.type === "TRANSFER" ? "—" : m.qty > 0 ? `+${m.qty}` : m.qty}
+                  </td>
                   <td className="text-stone-500">{m.reference || m.reason || "—"}</td>
                 </tr>
               ))}
@@ -149,7 +151,9 @@ export function InventoryMovements() {
                     {m.part.name} <span className="font-mono text-xs text-stone-400">{m.part.sku}</span>
                   </td>
                   <td>{m.part.binLocation || "—"}</td>
-                  <td className="num font-medium">{m.qty > 0 ? `+${m.qty}` : m.qty}</td>
+                  <td className="num font-medium">
+                    {m.type === "TRANSFER" ? "—" : m.qty > 0 ? `+${m.qty}` : m.qty}
+                  </td>
                   <td className="text-stone-500">{m.reference || m.reason || "—"}</td>
                   <td>{m.user?.name || "System"}</td>
                 </tr>

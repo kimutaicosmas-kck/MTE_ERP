@@ -1,4 +1,4 @@
-/** Product master / CSV import-export column layout. */
+/** Product master / CSV import-export column layout. Qty on CSV = stock at location's store; Part.qtyOnHand = company total. */
 export const PRODUCT_MASTER_HEADERS = [
   "Part No",
   "Description",

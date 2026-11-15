@@ -30,6 +30,9 @@ services:
     ports: !reset []
     environment:
       JWT_SECRET: ${JWT_SECRET:-mte-demo-change-me}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      MTE_ENFORCE_SECRETS: ${MTE_ENFORCE_SECRETS:-}
       LOAD_TEST_KEY: ""
     expose:
       - "4000"

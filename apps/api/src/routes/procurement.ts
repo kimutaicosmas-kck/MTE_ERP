@@ -342,9 +342,15 @@ procurementRouter.post("/:id/receive", async (req, res) => {
     const part = await prisma.part.findUnique({ where: { id: line.partId } });
     const nextQty = (part?.qtyOnHand || 0) + item.qty;
     const avgCost = part && nextQty > 0 ? ((part.qtyOnHand * part.cost) + item.qty * unitKes) / nextQty : unitKes;
+    const { adjustSiteQty, defaultWarehouseSiteId } = await import("../lib/site-stock.js");
+    const warehouseSiteId = await defaultWarehouseSiteId();
+    await adjustSiteQty(line.partId, warehouseSiteId, item.qty, {
+      binLocation: part?.binLocation,
+      warehouseBinId: part?.warehouseBinId,
+    });
     await prisma.part.update({
       where: { id: line.partId },
-      data: { qtyOnHand: { increment: item.qty }, cost: Math.round(avgCost * 100) / 100 },
+      data: { cost: Math.round(avgCost * 100) / 100 },
     });
     await prisma.stockMovement.create({
       data: {
