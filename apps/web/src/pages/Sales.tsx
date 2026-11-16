@@ -479,6 +479,7 @@ export function Sales() {
           body={`${accept.number} · ${accept.customer.name}. Stock will be reserved and an invoice created in Finance.`}
           confirmLabel="Confirm sales order"
           busy={convert.isPending}
+          error={convert.error ? (convert.error as Error).message : null}
           onConfirm={() => convert.mutate(accept.id)}
           onClose={() => setAccept(null)}
         />

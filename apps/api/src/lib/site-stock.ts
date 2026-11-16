@@ -77,6 +77,48 @@ export async function getSiteQty(partId: string, warehouseSiteId: string) {
   return row?.qtyOnHand ?? 0;
 }
 
+/**
+ * Legacy parts may show company qtyOnHand while partSiteStock at the sale store is zero.
+ * Attribute unattributed stock to the selling store before confirm/reserve.
+ */
+export async function ensurePartStockAtSite(partId: string, warehouseSiteId: string) {
+  const part = await prisma.part.findUnique({
+    where: { id: partId },
+    include: { siteStocks: true },
+  });
+  if (!part) return 0;
+  const atSite = await getSiteQty(partId, warehouseSiteId);
+  if (atSite > 0.0001) return atSite;
+  const otherSum = part.siteStocks
+    .filter((s) => s.warehouseSiteId !== warehouseSiteId)
+    .reduce((sum, s) => sum + s.qtyOnHand, 0);
+  if (otherSum === 0 && part.qtyOnHand > 0.0001) {
+    await prisma.partSiteStock.upsert({
+      where: { partId_warehouseSiteId: { partId, warehouseSiteId } },
+      create: {
+        partId,
+        warehouseSiteId,
+        qtyOnHand: part.qtyOnHand,
+        binLocation: part.binLocation || "",
+        warehouseBinId: part.warehouseBinId,
+      },
+      update: {
+        qtyOnHand: part.qtyOnHand,
+        binLocation: part.binLocation || undefined,
+        warehouseBinId: part.warehouseBinId ?? undefined,
+      },
+    });
+    return part.qtyOnHand;
+  }
+  return atSite;
+}
+
+export async function saleSiteIdForLine(orderNotes: string | null | undefined, pickLocation?: string | null) {
+  const pick = pickLocation?.trim();
+  if (pick) return resolveWarehouseSiteIdFromBinPath(pick);
+  return saleWarehouseSiteIdForOrder(orderNotes);
+}
+
 type SiteStockOpts = {
   binLocation?: string;
   warehouseBinId?: string | null;

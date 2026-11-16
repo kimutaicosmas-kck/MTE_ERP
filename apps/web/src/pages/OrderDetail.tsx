@@ -269,8 +269,12 @@ export function OrderDetail() {
           body="Stock will be reserved and an invoice will be created in Finance."
           confirmLabel="Confirm sales order"
           busy={convert.isPending}
+          error={convert.error ? (convert.error as Error).message : null}
           onConfirm={() => convert.mutate()}
-          onClose={() => setAccept(false)}
+          onClose={() => {
+            setAccept(false);
+            convert.reset();
+          }}
         />
       )}
       {stk && o.invoice && (

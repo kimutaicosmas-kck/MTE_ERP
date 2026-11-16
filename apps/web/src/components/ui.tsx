@@ -315,6 +315,7 @@ export function ConfirmDialog({
   confirmLabel = "Confirm",
   danger,
   busy,
+  error,
   onConfirm,
   onClose,
 }: {
@@ -323,6 +324,7 @@ export function ConfirmDialog({
   confirmLabel?: string;
   danger?: boolean;
   busy?: boolean;
+  error?: string | null;
   onConfirm: () => void;
   onClose: () => void;
 }) {
@@ -330,6 +332,7 @@ export function ConfirmDialog({
     <Modal onClose={onClose}>
       <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
       <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{body}</p>
+      {error ? <p className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p> : null}
       <div className="mt-5 flex justify-end gap-2">
         <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
         <button type="button" className={danger ? "btn-danger" : "btn-gold"} disabled={busy} onClick={onConfirm}>

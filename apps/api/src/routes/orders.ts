@@ -18,7 +18,13 @@ import { packDocStyle, shareTokenFor, unpackDocStyle } from "../lib/doc-style.js
 import { assertCreditAllowed } from "../lib/credit.js";
 import { zEntityId, zOptionalText, zText } from "../lib/sanitize.js";
 import { canDispatchTransition, DISPATCH_METHODS, DISPATCH_PRIORITIES, isDispatchStep } from "../lib/dispatch-workflow.js";
-import { adjustSiteQty, getSiteQty, saleWarehouseSiteIdForOrder } from "../lib/site-stock.js";
+import {
+  adjustSiteQty,
+  ensurePartStockAtSite,
+  getSiteQty,
+  saleSiteIdForLine,
+  saleWarehouseSiteIdForOrder,
+} from "../lib/site-stock.js";
 import { orderMoneyTotals } from "../lib/vat-totals.js";
 
 export const ordersRouter = Router();
@@ -368,26 +374,39 @@ function linesFullyPacked(order: SaleOrder) {
 
 async function convertQuotation(order: SaleOrder, userId: string, role: string) {
   if (order.status !== "DRAFT") {
-    throw Object.assign(new Error("Only a quotation can be converted to a sales order"), { status: 400 });
+    const msg =
+      order.status === "CONFIRMED" || order.invoice
+        ? "This quotation is already a confirmed sales order. Refresh the page."
+        : `Cannot confirm: order status is ${order.status}. Only draft quotations can be converted.`;
+    throw Object.assign(new Error(msg), { status: 400 });
   }
   if (!order.lines.length) {
     throw Object.assign(new Error("Add at least one product before converting"), { status: 400 });
   }
   const gross = totals(order).gross;
   await assertCreditAllowed(order.customerId, gross, role);
-  const warehouseSiteId = await saleWarehouseSiteIdForOrder(order.notes);
-  const site = await prisma.warehouseSite.findUnique({ where: { id: warehouseSiteId } });
+
   for (const line of order.lines) {
+    const warehouseSiteId = await saleSiteIdForLine(order.notes, line.remarks);
+    await ensurePartStockAtSite(line.partId, warehouseSiteId);
+    const site = await prisma.warehouseSite.findUnique({ where: { id: warehouseSiteId } });
     const atSite = await getSiteQty(line.partId, warehouseSiteId);
     if (atSite < line.qty) {
       const label = site?.name || "this store";
+      const pn = line.part.oemNumber || line.part.sku;
+      const hint =
+        line.part.qtyOnHand >= line.qty
+          ? ` Company total is ${line.part.qtyOnHand} — transfer stock to ${label} in Inventory or choose a pick bin at that store on the quote.`
+          : "";
       throw Object.assign(
-        new Error(`Insufficient stock for ${line.part.oemNumber || line.part.sku} at ${label} (${atSite} on hand)`),
+        new Error(`Insufficient stock for ${pn} at ${label} (${atSite} on hand, need ${line.qty}).${hint}`),
         { status: 400 },
       );
     }
   }
   for (const line of order.lines) {
+    const warehouseSiteId = await saleSiteIdForLine(order.notes, line.remarks);
+    const site = await prisma.warehouseSite.findUnique({ where: { id: warehouseSiteId } });
     await adjustSiteQty(line.partId, warehouseSiteId, -line.qty);
     await prisma.stockMovement.create({
       data: {
@@ -779,10 +798,14 @@ function totals(order: {
   };
 }
 
-async function restoreStock(order: { number: string; notes?: string | null; lines: { partId: string; qty: number }[] }) {
-  const warehouseSiteId = await saleWarehouseSiteIdForOrder(order.notes);
-  const site = await prisma.warehouseSite.findUnique({ where: { id: warehouseSiteId } });
+async function restoreStock(order: {
+  number: string;
+  notes?: string | null;
+  lines: { partId: string; qty: number; remarks?: string | null }[];
+}) {
   for (const line of order.lines) {
+    const warehouseSiteId = await saleSiteIdForLine(order.notes, line.remarks);
+    const site = await prisma.warehouseSite.findUnique({ where: { id: warehouseSiteId } });
     await adjustSiteQty(line.partId, warehouseSiteId, line.qty);
     await prisma.stockMovement.create({
       data: {
