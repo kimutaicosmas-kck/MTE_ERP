@@ -1,4 +1,4 @@
-import { ArrowUpDown, Check, Plus, X } from "lucide-react";
+import { ArrowUpDown, Check, ChevronRight, Plus, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { MOBILE_BP, PWA_LAYOUT_BP, useIsMobile } from "../lib/mobile";
@@ -216,6 +216,8 @@ export function Register<T>({
 }) {
   const isMobile = useIsMobile(MOBILE_BP);
   const pwa = useIsMobile(PWA_LAYOUT_BP);
+  const compactList = isMobile || pwa;
+  const showInlineActions = Boolean(mobile.actions) && !(compactList && onOpen);
   const [sortOpen, setSortOpen] = useState(false);
   const [visible, setVisible] = useState(12);
   const [selecting, setSelecting] = useState(false);
@@ -298,46 +300,67 @@ export function Register<T>({
         {children}
         {pager ? <Pager {...pager} /> : null}
       </div>
-      <div className="register-mobile">
+      <div className={`register-mobile ${compactList ? "register-mobile-compact" : ""}`}>
         {mobileRows.map((row) => {
           const id = getId(row);
           const on = picked.includes(id);
+          const fields = mobile.fields.slice(0, compactList ? 3 : 4);
           return (
             <article
               key={id}
-              className={`m-card ${on ? "m-card-on" : ""}`}
+              className={`m-card ${compactList ? "m-card-compact" : ""} ${on ? "m-card-on" : ""}`}
               onPointerDown={() => onPointerDown(row)}
               onPointerUp={(e) => onPointerUp(row, e)}
               onPointerCancel={() => window.clearTimeout(timer.current)}
               onContextMenu={(e) => { e.preventDefault(); startSelect(id); }}
             >
               <div className="m-card-top">
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="m-card-title">{mobile.title(row)}</div>
                   {mobile.subtitle ? <div className="m-card-sub">{mobile.subtitle(row)}</div> : null}
+                  {compactList && fields.length > 0 ? (
+                    <div className="m-card-meta" aria-label="Details">
+                      {fields.map((f, i) => (
+                        <span key={f.label} className="m-meta-item">
+                          {i > 0 ? <span className="m-meta-sep" aria-hidden>·</span> : null}
+                          <span className="m-meta-label">{f.label}</span>{" "}
+                          <strong className={f.align === "right" ? "m-meta-num" : ""}>{f.value(row)}</strong>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
-                <div className="m-card-status">
+                <div className="m-card-trailing">
                   {selecting ? (
                     <span className={`m-check ${on ? "m-check-on" : ""}`}>{on ? <Check size={12} /> : null}</span>
-                  ) : mobile.status?.(row)}
+                  ) : (
+                    <>
+                      {mobile.status?.(row)}
+                      {onOpen && !selecting ? (
+                        <ChevronRight size={18} className="m-card-chevron" aria-hidden />
+                      ) : null}
+                    </>
+                  )}
                 </div>
               </div>
-              <div className="m-card-grid">
-                {mobile.fields.slice(0, 4).map((f) => (
-                  <div key={f.label} className={`m-field ${f.align === "right" ? "m-field-num" : ""}`}>
-                    <span>{f.label}</span>
-                    <strong>{f.value(row)}</strong>
-                  </div>
-                ))}
-              </div>
-              {mobile.actions ? (
+              {!compactList ? (
+                <div className="m-card-grid">
+                  {fields.map((f) => (
+                    <div key={f.label} className={`m-field ${f.align === "right" ? "m-field-num" : ""}`}>
+                      <span>{f.label}</span>
+                      <strong>{f.value(row)}</strong>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {showInlineActions ? (
                 <div
                   className="m-card-actions"
                   onPointerDown={(e) => e.stopPropagation()}
                   onPointerUp={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {mobile.actions(row)}
+                  {mobile.actions!(row)}
                 </div>
               ) : null}
             </article>
