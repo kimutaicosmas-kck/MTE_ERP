@@ -19,6 +19,7 @@ import {
   workflowAssistantReply,
 } from "./assistant-knowledge.js";
 
+import { replySystemAnalytics } from "./assistant-analytics.js";
 import { mteCapabilitiesReply, replyMteKnowledge } from "./assistant-mte.js";
 
 import {
@@ -718,6 +719,20 @@ export async function assistantChat(user: { id: string; name: string; role: stri
     if (performance) {
 
       reply = performance;
+
+      mode = "local";
+
+    }
+
+  }
+
+  if (!reply) {
+
+    const analytics = await replySystemAnalytics(user, trimmed);
+
+    if (analytics) {
+
+      reply = analytics;
 
       mode = "local";
 

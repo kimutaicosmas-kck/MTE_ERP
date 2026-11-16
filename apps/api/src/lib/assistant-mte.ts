@@ -103,6 +103,31 @@ const ARTICLES: Article[] = [
     modules: ["procurement"],
     text: "**GRN:** Open PO → **Receive** → stock and vendor bill.",
   },
+  {
+    test: /\b(return|credit note)\b.*\b(sales|order|customer)\b|\bsales\s+return\b/,
+    modules: ["sales", "finance"],
+    text: "**Sales return:** Open the order → **Return** → lines and reason. Finance may issue a credit note; approvals may apply. [Approvals](/approvals).",
+  },
+  {
+    test: /\bdiscount\b.*\b(order|quote|line)\b/,
+    modules: ["sales", "approvals"],
+    text: "Discounts beyond policy may need [Approvals](/approvals). Enter the discount on the order line before confirming.",
+  },
+  {
+    test: /\bvat\b|\b16%\b|\btax invoice\b/,
+    modules: ["finance"],
+    text: "VAT is applied on confirmed invoices (see invoice PDF). Totals in [Finance](/finance) and [Reports](/reports).",
+  },
+  {
+    test: /\bcommission\b|\bmarkup\b/,
+    modules: ["sales", "finance"],
+    text: "Commission/markup is calculated when invoices post. See [Sales performance](/sales/performance) and [Reports](/reports).",
+  },
+  {
+    test: /\bcredit\s+limit\b|\bexceed\b.*\blimit\b/,
+    modules: ["customers", "finance"],
+    text: "Customer **credit limit** is on the customer record. Over-limit orders may need approval before confirming.",
+  },
 ];
 
 function salesOrderSteps(): string {
@@ -137,7 +162,7 @@ export function mteCapabilitiesReply(user: AssistantUser): string {
     "**Examples:**",
   ];
   const examples: [string, string][] = [
-    ["sales", "Best salesperson this month · How to create a quote"],
+    ["sales", "Best salesperson this year · How to create a quote"],
     ["inventory", "Which products are out of stock · Re-import same SKU"],
     ["finance", "Record partial payment · Void receipt"],
     ["procurement", "How to create a PO"],

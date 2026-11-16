@@ -1,5 +1,11 @@
 import { prisma } from "./prisma.js";
 import { canModule, MODULES, userModules } from "./access.js";
+import {
+  fetchSalesLeaderboard,
+  parseSalesWhenFromMessage,
+  salesPeriodRange,
+  salesPerformanceLink,
+} from "./sales-report.js";
 
 export type AssistantUser = { id: string; name: string; role: string; modules?: string | null };
 
@@ -123,34 +129,14 @@ export async function replyStockDetail(user: AssistantUser, message: string): Pr
 export function wantsSalesPerformance(message: string): boolean {
   const q = message.toLowerCase().trim();
   if (/\b(my performance|my sales|my target|my commission|how am i doing)\b/.test(q)) return true;
-  if (/\b(best|top|leading|highest|perform)/.test(q) && /\b(sales|seller|rep|person|team|month|week|year)\b/.test(q)) return true;
-  if (/\b(sales\s*person|salesperson|sales rep)\b/.test(q) && /\b(best|top|who|month|week|year|perform)/.test(q)) return true;
-  if (/\bwho\b/.test(q) && /\b(best|top)\b/.test(q) && /\b(sales|seller|rep|perform)/.test(q)) return true;
+  if (/\b(leaderboard|rankings?)\b/.test(q) && /\b(sales|seller|team)\b/.test(q)) return true;
+  if (/\b(best|top|leading|highest|worst|lowest)\b/.test(q) && /\b(sales|seller|rep|person|people|staff|team|perform)/.test(q))
+    return true;
+  if (/\b(sales\s*person|salesperson|sales rep|sales team)\b/.test(q) && /\b(best|top|who|rank|perform|year|month|week)\b/.test(q))
+    return true;
+  if (/\bwho\b/.test(q) && /\b(best|top|leading)\b/.test(q) && /\b(sales|seller|rep|perform|person)\b/.test(q)) return true;
+  if (/\b(which|what)\b/.test(q) && /\b(sales\s*person|salesperson)\b/.test(q)) return true;
   return false;
-}
-
-function salesPeriod(when: string) {
-  const end = new Date();
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  if (when === "week") {
-    start.setDate(start.getDate() - start.getDay());
-    return { start, end };
-  }
-  if (when === "today") return { start, end };
-  start.setDate(1);
-  return { start, end };
-}
-
-function detectSalesWhen(message: string): string {
-  const q = message.toLowerCase();
-  if (/\btoday\b/.test(q)) return "today";
-  if (/\b(this\s+)?week\b/.test(q)) return "week";
-  return "month";
-}
-
-function orderRevenue(order: { lines: { qty: number; salePrice: number }[] }) {
-  return order.lines.reduce((n, l) => n + l.qty * l.salePrice, 0);
 }
 
 export async function replySalesPerformance(user: AssistantUser, message: string): Promise<string | null> {
@@ -158,86 +144,46 @@ export async function replySalesPerformance(user: AssistantUser, message: string
   if (user.role !== "SALES" && !canModule(user, "reports") && !canModule(user, "sales")) {
     return moduleDenied(user, "reports", "Sales performance");
   }
-  const when = detectSalesWhen(message);
-  const { start, end } = salesPeriod(when);
-  const periodLabel = when === "today" ? "today" : when === "week" ? "this week" : "this month";
 
-  const users = await prisma.user.findMany({
-    where: {
-      role: { in: ["SALES", "ADMIN", "SUPER_ADMIN"] },
-      active: true,
-      ...(user.role === "SALES" ? { id: user.id } : {}),
-    },
-    include: { orders: { include: { lines: true } } },
+  const when = parseSalesWhenFromMessage(message);
+  const { start, end, label: periodLabel } = salesPeriodRange(when);
+  const perfLink = salesPerformanceLink(when);
+
+  const ranked = await fetchSalesLeaderboard({
+    start,
+    end,
+    when,
+    restrictUserId: user.role === "SALES" ? user.id : undefined,
   });
 
-  const rows = users
-    .map((u) => {
-      const periodOrders = u.orders.filter((o) => {
-        const d = new Date(o.createdAt);
-        return d >= start && d <= end && o.status !== "DRAFT" && o.status !== "CANCELLED";
-      });
-      const revenue = periodOrders.reduce((s, o) => s + orderRevenue(o), 0);
-      return { name: u.name, revenue, orders: periodOrders.length, attainment: u.monthlyTarget ? revenue / u.monthlyTarget : 0 };
-    })
-    .sort((a, b) => b.revenue - a.revenue || b.orders - a.orders);
-
   if (user.role === "SALES") {
-    const me = rows[0];
-    if (!me) {
-      return `No confirmed sales ${periodLabel} yet. Track progress in [Sales performance](/sales/performance).`;
+    const me = ranked[0];
+    if (!me?.orders) {
+      return `No confirmed sales **${periodLabel}** yet. Track progress in ${perfLink}.`;
     }
     const pct = Math.round(me.attainment * 100);
-    return `**Your sales ${periodLabel}:** KES ${Math.round(me.revenue).toLocaleString("en-KE")} · ${me.orders} order(s)${pct ? ` · ${pct}% of target` : ""}. [Details](/sales/performance).`;
+    return `**Your sales ${periodLabel}:** KES ${Math.round(me.revenue).toLocaleString("en-KE")} · ${me.orders} order(s)${pct ? ` · ${pct}% of target` : ""}. ${perfLink}.`;
   }
 
-  let ranked = rows;
-  if (!ranked.some((r) => r.orders > 0)) {
-    const groups = await prisma.order.groupBy({
-      by: ["salespersonId"],
-      where: {
-        salespersonId: { not: null },
-        status: { notIn: ["DRAFT", "CANCELLED"] },
-        createdAt: { gte: start, lte: end },
-      },
-      _count: { id: true },
-    });
-    if (!groups.length) {
-      return `No confirmed sales ${periodLabel} yet. [Sales performance](/sales/performance).`;
-    }
-    ranked = await Promise.all(
-      groups.map(async (g) => {
-        const person = await prisma.user.findUnique({ where: { id: g.salespersonId! }, select: { name: true } });
-        const orders = await prisma.order.findMany({
-          where: {
-            salespersonId: g.salespersonId,
-            createdAt: { gte: start, lte: end },
-            status: { notIn: ["DRAFT", "CANCELLED"] },
-          },
-          include: { lines: true },
-        });
-        const revenue = orders.reduce((s, o) => s + orderRevenue(o), 0);
-        return { name: person?.name || "Unknown", revenue, orders: g._count.id, attainment: 0 };
-      }),
-    );
-    ranked.sort((a, b) => b.revenue - a.revenue || b.orders - a.orders);
+  if (!ranked.length || !ranked.some((r) => r.orders > 0)) {
+    return `No confirmed sales **${periodLabel}** yet. ${perfLink}.`;
   }
 
   const top = ranked[0];
   if (!top.orders) {
-    return `No confirmed sales ${periodLabel} yet. [Sales performance](/sales/performance).`;
+    return `No confirmed sales **${periodLabel}** yet. ${perfLink}.`;
   }
   if (top.revenue <= 0) {
-    return `**Best ${periodLabel} by volume:** **${top.name}** — ${top.orders} order(s). Revenue shows KES 0 on lines (check unit prices). [Sales performance](/sales/performance).`;
+    return `**Best ${periodLabel} by volume:** **${top.name}** — ${top.orders} order(s). Revenue shows KES 0 on lines (check unit prices). ${perfLink}.`;
   }
 
   const lines = [
-    `**Best ${periodLabel}:** **${top.name}** — KES ${Math.round(top.revenue).toLocaleString("en-KE")} (${top.orders} orders).`,
+    `**Best salesperson ${periodLabel}:** **${top.name}** — KES ${Math.round(top.revenue).toLocaleString("en-KE")} (${top.orders} orders).`,
   ];
   for (const r of ranked.slice(1, 4).filter((r) => r.revenue > 0 || r.orders > 0)) {
     lines.push(`• ${r.name} — KES ${Math.round(r.revenue).toLocaleString("en-KE")} (${r.orders} orders)`);
   }
-  lines.push("[Full leaderboard](/sales/performance)");
+  lines.push(`[Full leaderboard](/sales/performance${when === "month" ? "" : `?when=${when}`})`);
   return lines.join("\n");
 }
 

@@ -15,7 +15,7 @@ type AssistantCtx = {
 
 const STARTERS = [
   "What needs attention?",
-  "Who is the top salesperson this month?",
+  "Who is the best salesperson this year?",
   "Which products are out of stock?",
   "How do I create a PO?",
 ];

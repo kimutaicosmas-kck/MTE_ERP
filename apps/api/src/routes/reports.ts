@@ -2,6 +2,7 @@ import { Router } from "express";
 import { prisma } from "../lib/prisma.js";
 import { moduleAccess } from "../middleware/auth.js";
 import { computeVatTotals, sumSaleLines } from "../lib/vat-totals.js";
+import { orderLineRevenue, parseSalesWhenParam, salesPeriodRange } from "../lib/sales-report.js";
 
 export const reportsRouter = Router();
 
@@ -50,42 +51,14 @@ reportsRouter.get("/inventory", moduleAccess("reports"), async (_req, res) => {
   });
 });
 
-function salesPeriod(when: string) {
-  const end = new Date();
-  end.setHours(23, 59, 59, 999);
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  if (when === "lastMonth") {
-    start.setDate(1);
-    start.setMonth(start.getMonth() - 1);
-    const monthEnd = new Date(start);
-    monthEnd.setMonth(monthEnd.getMonth() + 1);
-    monthEnd.setDate(0);
-    monthEnd.setHours(23, 59, 59, 999);
-    return { start, end: monthEnd, label: "Last month" };
-  }
-  if (when === "year") {
-    start.setMonth(0, 1);
-    return { start, end, label: "This year" };
-  }
-  if (when === "all") {
-    return { start: new Date(0), end, label: "All time" };
-  }
-  start.setDate(1);
-  return { start, end, label: "This month" };
-}
-
-function orderRevenue(order: { lines: { qty: number; salePrice: number }[] }) {
-  return order.lines.reduce((n, l) => n + l.qty * l.salePrice, 0);
-}
 
 function orderPaid(order: { payments: { amount: number }[] }) {
   return order.payments.reduce((n, p) => n + p.amount, 0);
 }
 
 reportsRouter.get("/sales", moduleAccess("sales", "reports"), async (req, res) => {
-  const when = String(req.query.when || "month");
-  const { start, end, label } = salesPeriod(when);
+  const when = parseSalesWhenParam(String(req.query.when || "month"));
+  const { start, end, label } = salesPeriodRange(when);
   const users = await prisma.user.findMany({
     where: {
       role: { in: ["SALES", "ADMIN", "SUPER_ADMIN"] },
@@ -107,7 +80,7 @@ reportsRouter.get("/sales", moduleAccess("sales", "reports"), async (req, res) =
       const d = new Date(inv.issuedAt);
       return d >= start && d <= end;
     });
-    const revenue = periodOrders.reduce((s, o) => s + orderRevenue(o), 0);
+    const revenue = periodOrders.reduce((s, o) => s + orderLineRevenue(o), 0);
     const paid = periodOrders.reduce((s, o) => s + orderPaid(o), 0);
     const markupCommission = periodInvoices.reduce((s, inv) => s + inv.markupCommission, 0);
     const completed = periodOrders.filter((o) => o.status === "DELIVERED" || o.status === "PAID").length;
@@ -123,7 +96,7 @@ reportsRouter.get("/sales", moduleAccess("sales", "reports"), async (req, res) =
       next.setDate(next.getDate() + 1);
       return periodOrders
         .filter((o) => o.createdAt >= d && o.createdAt < next)
-        .reduce((s, o) => s + orderRevenue(o), 0);
+        .reduce((s, o) => s + orderLineRevenue(o), 0);
     });
     return {
       id: u.id,
