@@ -1,4 +1,5 @@
 import { prisma } from "./prisma.js";
+import { isBusinessDataQuestion } from "./assistant-intent.js";
 
 export function wantsCustomerList(message: string) {
   const q = message.toLowerCase();
@@ -12,8 +13,14 @@ export function wantsCustomerList(message: string) {
 }
 
 export function customerSearchTerms(message: string) {
+  if (isBusinessDataQuestion(message)) return [];
   const raw = message.toLowerCase().split(/[^a-z0-9/-]+/).filter(Boolean);
-  const stop = new Set(["customer", "number", "list", "all", "pull", "show", "the", "me", "for", "find", "search"]);
+  const stop = new Set([
+    "customer", "number", "list", "all", "pull", "show", "the", "me", "for", "find", "search",
+    "how", "much", "what", "when", "where", "who", "which", "is", "are", "was", "were", "did", "do",
+    "today", "todays", "week", "month", "year", "sales", "sell", "sold", "revenue", "total", "amount",
+    "order", "orders", "business", "company", "we", "our", "my", "many", "have", "has",
+  ]);
   return [...new Set(raw.filter((t) => t.length >= 2 && !stop.has(t)))].slice(0, 5);
 }
 

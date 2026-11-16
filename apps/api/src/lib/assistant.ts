@@ -20,6 +20,7 @@ import {
 } from "./assistant-knowledge.js";
 
 import { replySystemAnalytics } from "./assistant-analytics.js";
+import { isBusinessDataQuestion } from "./assistant-intent.js";
 import { mteCapabilitiesReply, replyMteKnowledge } from "./assistant-mte.js";
 
 import {
@@ -246,9 +247,7 @@ export async function searchLiveContext(user: { id: string; role: string; module
 
   const empty: LiveSearch = { customers: [], parts: [], orders: [] };
 
-  if (wantsSalesPerformance(message)) return empty;
-
-  if (wantsStockDetail(message)) return empty;
+  if (isBusinessDataQuestion(message)) return empty;
 
   if (isWorkflowQuestion(message) && !wantsCustomerList(message) && !isPersonLookup(message)) return empty;
 
@@ -354,6 +353,20 @@ export async function searchLiveContext(user: { id: string; role: string; module
 }
 
 
+
+function hasEntityLookupIntent(q: string, live: LiveSearch): boolean {
+  if (live.listMode) return true;
+  if (isPersonLookup(q)) return true;
+  if (q.includes("find") || q.includes("search") || q.includes("lookup")) return true;
+  if ((q.includes("who") || q.includes("which")) && q.includes("customer")) return true;
+  if (live.customers.length && (q.includes("customer") || q.includes("client") || q.includes("repayment") || q.includes("balance"))) {
+    return true;
+  }
+  if (live.orders.length === 1 && (q.includes("order") || /\bso-|inv-/i.test(q))) return true;
+  if (live.parts.length && (q.includes("sku") || q.includes("part") || q.includes("product") || q.includes("stock"))) return true;
+  if (/\bcust-\d+/i.test(q)) return true;
+  return false;
+}
 
 function formatLiveSearch(live: LiveSearch): string | null {
 
@@ -471,16 +484,7 @@ function ruleBasedReply(message: string, snap: ErpSnapshot, live: LiveSearch, us
 
   const fromSearch = formatLiveSearch(live);
 
-  if (
-    fromSearch &&
-    (live.listMode ||
-      isPersonLookup(q) ||
-      q.includes("find") ||
-      q.includes("search") ||
-      ((q.includes("who") || q.includes("which")) && q.includes("customer")) ||
-      (live.customers.length && (q.includes("customer") || q.includes("repayment") || q.includes("balance"))) ||
-      live.orders.length === 1)
-  ) {
+  if (fromSearch && hasEntityLookupIntent(q, live)) {
 
     return fromSearch;
 
@@ -632,7 +636,9 @@ function ruleBasedReply(message: string, snap: ErpSnapshot, live: LiveSearch, us
 
 
 
-  if (fromSearch) return fromSearch;
+  if (fromSearch && !isBusinessDataQuestion(message) && hasEntityLookupIntent(q, live)) {
+    return fromSearch;
+  }
 
   return null;
 
@@ -686,29 +692,13 @@ export async function assistantChat(user: { id: string; name: string; role: stri
 
   let mode: "local" = "local";
 
+  const analytics = await replySystemAnalytics(user, trimmed);
 
+  if (analytics) {
 
-  const workflow = workflowAssistantReply(user, trimmed);
-
-  if (workflow) {
-
-    reply = workflow;
+    reply = analytics;
 
     mode = "local";
-
-  }
-
-  if (!reply) {
-
-    const stock = await replyStockDetail(user, trimmed);
-
-    if (stock) {
-
-      reply = stock;
-
-      mode = "local";
-
-    }
 
   }
 
@@ -728,11 +718,25 @@ export async function assistantChat(user: { id: string; name: string; role: stri
 
   if (!reply) {
 
-    const analytics = await replySystemAnalytics(user, trimmed);
+    const stock = await replyStockDetail(user, trimmed);
 
-    if (analytics) {
+    if (stock) {
 
-      reply = analytics;
+      reply = stock;
+
+      mode = "local";
+
+    }
+
+  }
+
+  if (!reply) {
+
+    const workflow = workflowAssistantReply(user, trimmed);
+
+    if (workflow) {
+
+      reply = workflow;
 
       mode = "local";
 

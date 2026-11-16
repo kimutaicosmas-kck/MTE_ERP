@@ -1,40 +1,15 @@
 import { prisma } from "./prisma.js";
 import { canModule } from "./access.js";
 import { moduleDenied, type AssistantUser } from "./assistant-knowledge.js";
+import {
+  wantsOpenPurchases,
+  wantsReceivables,
+  wantsRevenueTotal,
+  wantsTopCustomer,
+  wantsTopProduct,
+} from "./assistant-intent.js";
 import { orderLineRevenue, parseSalesWhenFromMessage, salesPeriodRange, salesPerformanceLink } from "./sales-report.js";
 import { ownOrderWhere } from "./roles.js";
-
-function wantsRevenueTotal(q: string): boolean {
-  return (
-    /\b(how much|total|revenue|turnover|sold)\b/.test(q) &&
-    /\b(sales|sell|sold|revenue|business|company|we)\b/.test(q) &&
-    !/\b(sales\s*person|salesperson|rep|who)\b/.test(q)
-  );
-}
-
-function wantsTopCustomer(q: string): boolean {
-  return /\b(best|top|biggest|largest|main)\b/.test(q) && /\bcustomer(s)?\b/.test(q);
-}
-
-function wantsReceivables(q: string): boolean {
-  if (/\bvoid\b/.test(q)) return false;
-  return (
-    /\b(receivable|outstanding|uncollected|collections?)\b/.test(q) ||
-    (/\bwho\b/.test(q) && /\b(owe|owing|debt)\b/.test(q)) ||
-    /\bhow much\b.*\b(owe|owing|outstanding)\b/.test(q)
-  );
-}
-
-function wantsTopProduct(q: string): boolean {
-  return (
-    /\b(best|top|fastest|bestsell)/.test(q) &&
-    /\b(selling|seller|product|part|sku|moving|mover)\b/.test(q)
-  );
-}
-
-function wantsOpenPurchases(q: string): boolean {
-  return /\b(open\s+po|open\s+purchase|pending\s+po|supplier\s+order)\b/.test(q);
-}
 
 async function replyRevenueTotal(user: AssistantUser, message: string): Promise<string | null> {
   const allowed = user.role === "SALES" || canModule(user, "reports") || canModule(user, "sales");

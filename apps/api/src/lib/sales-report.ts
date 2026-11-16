@@ -8,7 +8,7 @@ export function parseSalesWhenFromMessage(message: string): SalesWhen {
   if (/\ball\s+time\b|\boverall\b|\bever\b|\bsince\s+start\b/.test(q)) return "all";
   if (/\b(last\s+month|previous\s+month)\b/.test(q)) return "lastMonth";
   if (/\b(this\s+)?year\b|\bytd\b|\byear\s+to\s+date\b|\bannual\b/.test(q)) return "year";
-  if (/\btoday\b/.test(q)) return "today";
+  if (/\b(today|todays|today's|yesterday)\b/.test(q)) return "today";
   if (/\b(this\s+)?week\b/.test(q)) return "week";
   return "month";
 }
