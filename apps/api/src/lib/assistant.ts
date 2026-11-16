@@ -10,10 +10,14 @@ import { canModule, MODULES, userModules } from "./access.js";
 
 import {
   filterAlertsForUser,
+  isWorkflowQuestion,
   moduleDenied,
   moduleListForPrompt,
   replySalesPerformance,
+  replyStockDetail,
   wantsSalesPerformance,
+  wantsStockDetail,
+  workflowAssistantReply,
 } from "./assistant-knowledge.js";
 
 import {
@@ -107,30 +111,6 @@ const STOP = new Set([
   "open", "confirm", "convert", "workflow", "steps", "guide", "walk", "through", "do", "field", "shop",
 
 ]);
-
-
-
-function isWorkflowQuestion(message: string) {
-
-  const q = message.toLowerCase().trim();
-
-  if (/\b(how\s+(to|do|can|should)|step(?:s)?|workflow|guide|walk\s+me\s+through|help\s+me)\b/.test(q)) return true;
-
-  if (
-
-    /\b(create|make|start|issue|record|convert|confirm|add|enter)\b/.test(q) &&
-
-    /\b(order|quote|quotation|invoice|payment|po|purchase|dispatch|grn|receipt|customer|return)\b/.test(q)
-
-  ) {
-
-    return true;
-
-  }
-
-  return false;
-
-}
 
 
 
@@ -287,6 +267,8 @@ export async function searchLiveContext(user: { id: string; role: string; module
   const empty: LiveSearch = { customers: [], parts: [], orders: [] };
 
   if (wantsSalesPerformance(message)) return empty;
+
+  if (wantsStockDetail(message)) return empty;
 
   if (isWorkflowQuestion(message) && !wantsCustomerList(message) && !isPersonLookup(message)) return empty;
 
@@ -540,19 +522,19 @@ function ruleBasedReply(message: string, snap: ErpSnapshot, live: LiveSearch, us
 
   }
 
-  if (q.includes("stock") || q.includes("inventory") || q.includes("reorder")) {
+  if (!wantsStockDetail(message) && (q.includes("stock") || q.includes("inventory") || q.includes("reorder"))) {
 
     return snap.kpis.lowStock
 
-      ? `**${snap.kpis.lowStock}** SKU(s) at/below reorder. [Inventory](/inventory?section=reorder).`
+      ? `**${snap.kpis.lowStock}** SKU(s) at/below reorder. Ask **which products are out of stock** for names. [Inventory](/inventory?section=reorder).`
 
       : "Stock levels look healthy. [Inventory](/inventory).";
 
   }
 
-  if (/\b(po|purchase|procurement)\b/.test(q)) {
+  if (!isWorkflowQuestion(message) && /\b(po|purchase|procurement)\b/.test(q)) {
 
-    return `**${snap.kpis.openPOs}** open PO(s). [Procurement](/procurement).`;
+    return `**${snap.kpis.openPOs}** open PO(s). Ask **how to create a PO** for steps. [Procurement](/procurement).`;
 
   }
 
@@ -856,17 +838,43 @@ export async function assistantChat(user: { id: string; name: string; role: stri
 
 
 
-  const performance = await replySalesPerformance(user, trimmed);
+  const workflow = workflowAssistantReply(user, trimmed);
 
-  if (performance) {
+  if (workflow) {
 
-    reply = performance;
+    reply = workflow;
 
     mode = "local";
 
   }
 
+  if (!reply) {
 
+    const stock = await replyStockDetail(user, trimmed);
+
+    if (stock) {
+
+      reply = stock;
+
+      mode = "local";
+
+    }
+
+  }
+
+  if (!reply) {
+
+    const performance = await replySalesPerformance(user, trimmed);
+
+    if (performance) {
+
+      reply = performance;
+
+      mode = "local";
+
+    }
+
+  }
 
   if (!reply) {
 
