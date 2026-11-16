@@ -4657,3 +4657,144 @@ html.dark .pay-record-foot {
   gap: 0.5rem;
   padding-top: 0.25rem;
 }
+
+/* —— PWA / Android-native interaction layer —— */
+html.pwa-layout {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+html.pwa-layout body {
+  overscroll-behavior-y: none;
+  min-height: 100dvh;
+}
+html.pwa-layout .app-main-pwa {
+  padding-left: max(0.65rem, env(safe-area-inset-left));
+  padding-right: max(0.65rem, env(safe-area-inset-right));
+  padding-bottom: calc(5.25rem + env(safe-area-inset-bottom));
+  -webkit-overflow-scrolling: touch;
+}
+html.pwa-layout .bottom-nav {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0;
+  border-radius: 0;
+  border-top: 1px solid rgb(255 255 255 / 0.08);
+  padding: 0.25rem max(0.35rem, env(safe-area-inset-left)) max(0.35rem, env(safe-area-inset-bottom))
+    max(0.35rem, env(safe-area-inset-right));
+  box-shadow: 0 -4px 24px rgb(0 0 0 / 0.22);
+}
+html.pwa-layout .bottom-nav a {
+  min-height: 2.65rem;
+  padding: 0.3rem 0.15rem;
+  font-size: 0.62rem;
+  border-radius: 0.65rem;
+  transition: background 0.12s;
+}
+html.pwa-layout .bottom-nav a:active:not(.bn-on) {
+  background: rgb(255 255 255 / 0.08);
+}
+html.pwa-layout .mobile-topbar {
+  padding-left: max(0.35rem, env(safe-area-inset-left));
+  padding-right: max(0.35rem, env(safe-area-inset-right));
+  box-shadow: 0 1px 0 rgb(226 232 240);
+}
+html.dark.pwa-layout .mobile-topbar {
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.08);
+}
+html.pwa-layout .mobile-topbar-menu:active,
+html.pwa-layout .header-icon-btn:active,
+html.pwa-layout .mobile-create-fab:active {
+  transform: scale(0.96);
+  opacity: 0.92;
+}
+html.pwa-layout .btn-gold,
+html.pwa-layout .btn-ghost,
+html.pwa-layout .btn-success,
+html.pwa-layout .btn-danger,
+html.pwa-layout button,
+html.pwa-layout a.btn-gold {
+  min-height: 2.5rem;
+}
+html.pwa-layout input:not([type="checkbox"]):not([type="radio"]),
+html.pwa-layout select,
+html.pwa-layout textarea {
+  min-height: 2.75rem;
+  font-size: 16px;
+}
+html.pwa-layout .toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: rgb(244 246 250 / 0.92);
+  backdrop-filter: blur(8px);
+  padding-bottom: 0.35rem;
+  margin-bottom: 0.15rem;
+}
+html.dark.pwa-layout .toolbar {
+  background: rgb(10 18 32 / 0.92);
+}
+html.pwa-layout .suite-panel {
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  padding-left: 0;
+  padding-right: 0;
+}
+html.pwa-layout .module-list-suite {
+  border: 1px solid #e8ecf0;
+  border-radius: 0.75rem;
+  background: #fff;
+  overflow: hidden;
+}
+html.dark.pwa-layout .module-list-suite {
+  border-color: rgb(255 255 255 / 0.1);
+  background: #121a26;
+}
+html.pwa-layout .mobile-dash-row:active,
+html.pwa-layout .mobile-more-link:active,
+html.pwa-layout .mobile-quick-btn:active {
+  background: #f1f5f9;
+}
+html.dark.pwa-layout .mobile-dash-row:active,
+html.dark.pwa-layout .mobile-more-link:active,
+html.dark.pwa-layout .mobile-quick-btn:active {
+  background: rgb(255 255 255 / 0.06);
+}
+html.pwa-layout .modal-backdrop {
+  align-items: flex-end;
+  padding: 0;
+}
+html.pwa-layout .modal-panel {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  border-radius: 1.1rem 1.1rem 0 0;
+  max-height: min(92dvh, 40rem);
+}
+.mobile-pull-bar {
+  position: sticky;
+  top: 0;
+  z-index: 28;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgb(245 158 26 / 0.2), transparent);
+  transition: height 0.12s;
+}
+.mobile-pull-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #b45309;
+}
+.mobile-pull-spin {
+  width: 1.1rem;
+  height: 1.1rem;
+  border: 2px solid #f59e1a;
+  border-top-color: transparent;
+  border-radius: 999px;
+  animation: mte-spin 0.65s linear infinite;
+}
+@keyframes mte-spin {
+  to { transform: rotate(360deg); }
+}

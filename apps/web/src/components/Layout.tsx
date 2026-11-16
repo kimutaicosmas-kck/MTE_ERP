@@ -38,6 +38,7 @@ import { MobileFab } from "./MobileFab";
 import { MobileDrawerNav } from "./MobileDrawerNav";
 import { getMobileBottomTabs } from "../lib/mobile-shell";
 import { usePwaLayoutDocumentClass } from "../lib/mobile";
+import { shouldShowMobileBack } from "../lib/pwa-nav";
 import { UI_BUILD } from "../lib/build-id";
 
 const links = [
@@ -70,6 +71,8 @@ export function Layout() {
   useIdleTimeout();
   const location = useLocation();
   const qc = useQueryClient();
+  const { meta } = usePageTitle();
+  const pwaLayout = usePwaLayoutDocumentClass();
   useTheme();
   const [open, setOpen] = useState(false);
   const [online, setOnline] = useState(isOnline());
@@ -79,6 +82,8 @@ export function Layout() {
   const [query, setQuery] = useState("");
   const [mobileSearch, setMobileSearch] = useState(false);
   const pull = useRef({ y: 0, active: false });
+  const [pullOffset, setPullOffset] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
   const goRef = useRef<(to: string) => void>(() => undefined);
 
   useEffect(() => {
@@ -137,16 +142,15 @@ export function Layout() {
   }, [qc]);
 
   useEffect(() => {
+    if (!pwaLayout) return;
     let start = 0;
     const down = (e: TouchEvent) => { start = e.touches[0].clientX; };
     const up = (e: TouchEvent) => {
       const dx = e.changedTouches[0].clientX - start;
-      if (start < 28 && dx > 70) {
-        const path = window.location.pathname;
-        if (path.startsWith("/sales/") ) nav("/sales");
-        else if (path.startsWith("/procurement/")) nav("/procurement");
-        else setOpen(true);
-      }
+      if (start > 32 || dx < 72) return;
+      const back = shouldShowMobileBack(location.pathname, meta?.backTo);
+      if (back) nav(back);
+      else if (location.pathname !== "/") nav("/");
     };
     window.addEventListener("touchstart", down, { passive: true });
     window.addEventListener("touchend", up);
@@ -154,9 +158,8 @@ export function Layout() {
       window.removeEventListener("touchstart", down);
       window.removeEventListener("touchend", up);
     };
-  }, [nav]);
+  }, [nav, pwaLayout, location.pathname, meta?.backTo]);
 
-  const { meta } = usePageTitle();
   useRealtimeSync();
   const visible = links.filter((l) => {
     if (l.to === "/" || l.to === "/hr") return true;
@@ -169,13 +172,17 @@ export function Layout() {
   const initials = (user?.name || "MTE").split(" ").filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join("");
   const navTitle = (meta?.title?.trim() || page).trim() || "MTE ERP";
   const navEyebrow = meta?.eyebrow?.trim() || page;
-  const heading = { eyebrow: navEyebrow, title: navTitle, sub: "", backTo: meta?.backTo };
+  const heading = {
+    eyebrow: navEyebrow,
+    title: navTitle,
+    sub: "",
+    backTo: pwaLayout ? shouldShowMobileBack(location.pathname, meta?.backTo) : meta?.backTo,
+  };
   const onDashboard = location.pathname === "/";
   const firstName = user?.name?.split(" ")[0] || "there";
   const hour = new Date().getHours();
   const hello = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const today = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
-  const pwaLayout = usePwaLayoutDocumentClass();
   const tabs = useMemo(() => getMobileBottomTabs(user), [user]);
 
   function submitSearch(q: string) {
@@ -437,21 +444,51 @@ export function Layout() {
           </button>
         </div>
       </div>
+      {(pullOffset > 4 || refreshing) && pwaLayout ? (
+        <div
+          className="mobile-pull-bar mobile-shell-chrome"
+          style={{ height: refreshing ? 3 : Math.min(56, Math.max(0, pullOffset * 0.35)) }}
+          aria-hidden
+        >
+          {refreshing ? <span className="mobile-pull-spin" /> : pullOffset > 72 ? <span className="mobile-pull-label">Release to refresh</span> : null}
+        </div>
+      ) : null}
+
       <main
-        className="app-main min-w-0 p-3 pb-28 sm:p-4 lg:ml-60 lg:px-6 lg:py-5"
-        onTouchStart={(e) => { if (window.scrollY <= 0) { pull.current = { y: e.touches[0].clientY, active: true }; } }}
+        className={`app-main min-w-0 p-3 pb-28 sm:p-4 lg:ml-60 lg:px-6 lg:py-5 ${pwaLayout ? "app-main-pwa" : ""}`}
+        onTouchStart={(e) => {
+          if (!pwaLayout || window.scrollY > 2) return;
+          pull.current = { y: e.touches[0].clientY, active: true };
+        }}
+        onTouchMove={(e) => {
+          if (!pwaLayout || !pull.current.active || window.scrollY > 2) return;
+          const dy = e.touches[0].clientY - pull.current.y;
+          if (dy > 0) setPullOffset(dy);
+        }}
         onTouchEnd={async (e) => {
           if (!pull.current.active) return;
           const dy = e.changedTouches[0].clientY - pull.current.y;
           pull.current.active = false;
-          if (dy > 80) {
+          setPullOffset(0);
+          if (!pwaLayout || dy <= 80) return;
+          setRefreshing(true);
+          try {
             await qc.invalidateQueries();
             if (isOnline()) await syncOfflineQueue();
+          } finally {
+            setRefreshing(false);
           }
         }}
       >
         <AnimatePresence mode="wait">
-          <motion.div key={location.pathname} className="page-module w-full min-w-0 max-w-full" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} transition={{ duration: 0.16 }}>
+          <motion.div
+            key={location.pathname}
+            className="page-module w-full min-w-0 max-w-full"
+            initial={pwaLayout ? { opacity: 0 } : { opacity: 0, x: 16 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={pwaLayout ? { opacity: 0 } : { opacity: 0, x: -16 }}
+            transition={{ duration: pwaLayout ? 0.12 : 0.16 }}
+          >
             <Outlet />
           </motion.div>
         </AnimatePresence>

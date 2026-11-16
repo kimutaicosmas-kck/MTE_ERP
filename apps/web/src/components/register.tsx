@@ -1,7 +1,7 @@
 import { ArrowUpDown, Check, ChevronRight, Plus, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { MOBILE_BP, PWA_LAYOUT_BP, useIsMobile } from "../lib/mobile";
+import { MOBILE_BP, useIsMobile, usePwaLayout } from "../lib/mobile";
 import { Pager } from "./ui";
 
 export type RegisterPager<T> = {
@@ -215,8 +215,8 @@ export function Register<T>({
   children: ReactNode;
 }) {
   const isMobile = useIsMobile(MOBILE_BP);
-  const pwa = useIsMobile(PWA_LAYOUT_BP);
-  const compactList = isMobile || pwa;
+  const pwaLayout = usePwaLayout();
+  const compactList = isMobile || pwaLayout;
   const showInlineActions = Boolean(mobile.actions) && !(compactList && onOpen);
   const [sortOpen, setSortOpen] = useState(false);
   const [visible, setVisible] = useState(12);
@@ -270,7 +270,7 @@ export function Register<T>({
           onAction={empty?.onAction}
           to={empty?.to}
         />
-        {action && !pwa ? <div className="thumb-actions">{action}</div> : null}
+        {action && !pwaLayout ? <div className="thumb-actions">{action}</div> : null}
       </div>
     );
   }
@@ -280,7 +280,7 @@ export function Register<T>({
       <div className="register-table">
         {children}
         {pager ? <Pager {...pager} /> : null}
-        {action && !pwa ? <div className="thumb-actions">{action}</div> : null}
+        {action && !pwaLayout ? <div className="thumb-actions">{action}</div> : null}
       </div>
     );
   }
@@ -413,7 +413,7 @@ export function Register<T>({
           </div>
         </div>
       )}
-      {action && !pwa ? <div className="thumb-actions">{action}</div> : null}
+      {action && !pwaLayout ? <div className="thumb-actions">{action}</div> : null}
     </>
   );
 }
