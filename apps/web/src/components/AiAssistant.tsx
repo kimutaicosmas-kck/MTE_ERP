@@ -15,9 +15,9 @@ type AssistantCtx = {
 
 const STARTERS = [
   "What needs attention?",
-  "Which items are low on stock?",
+  "Who is the top salesperson this month?",
   "How do I record a part payment?",
-  "What happens if I import the same product at a new cost?",
+  "Same product imported at a new cost",
 ];
 
 const AssistantContext = createContext<AssistantCtx | null>(null);

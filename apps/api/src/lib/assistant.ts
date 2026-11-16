@@ -6,7 +6,15 @@ import { fetchDashboardAlerts } from "./dashboardAlerts.js";
 
 import { ownOrderWhere } from "./roles.js";
 
-import { MODULES, userModules } from "./access.js";
+import { canModule, MODULES, userModules } from "./access.js";
+
+import {
+  filterAlertsForUser,
+  moduleDenied,
+  moduleListForPrompt,
+  replySalesPerformance,
+  wantsSalesPerformance,
+} from "./assistant-knowledge.js";
 
 import {
   customerSearchTerms,
@@ -164,17 +172,45 @@ function salesOrderWorkflowReply(): string {
 
 
 
-function shouldUseGuidedReply(message: string): boolean {
-
-  if (isWorkflowQuestion(message)) return true;
+function isGreeting(message: string): boolean {
 
   const q = message.toLowerCase().trim();
 
-  if (/^(hi|hello|hey)\b/.test(q)) return true;
+  if (/^(hi|hello|hey|howdy|greetings)\b/.test(q)) return true;
 
-  if (/\b(where|which\s+screen|go\s+to)\b/.test(q)) return true;
+  if (/^good\s+(morning|afternoon|evening)\b/.test(q)) return true;
+
+  if (/^(morning|afternoon|evening)\b/.test(q)) return true;
 
   return false;
+
+}
+
+
+
+function greetingReply(snap: ErpSnapshot, user: AssistantUser): string {
+
+  const first = snap.user.name.split(" ")[0];
+
+  const hour = new Date().getHours();
+
+  const lead = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
+  const k = snap.kpis;
+
+  const bits: string[] = [];
+
+  if (canModule(user, "approvals") && k.pendingApprovals) bits.push(`${k.pendingApprovals} approval(s) waiting`);
+
+  if (canModule(user, "dispatch") && k.dispatchQueue) bits.push(`${k.dispatchQueue} in dispatch`);
+
+  if (canModule(user, "finance") && k.unpaidInvoices) bits.push(`${k.unpaidInvoices} open invoice(s)`);
+
+  if (canModule(user, "inventory") && k.lowStock) bits.push(`${k.lowStock} low-stock SKU(s)`);
+
+  const tail = bits.length ? ` Today: ${bits.join(" · ")}.` : " Queues look clear.";
+
+  return `${lead}, ${first}.${tail} Ask about a customer, order, SKU, or the next step in MTE.`;
 
 }
 
@@ -188,29 +224,33 @@ export async function buildErpSnapshot(user: { id: string; name: string; role: s
 
   const own = ownOrderWhere(user);
 
-  const [pendingApprovals, dispatchQueue, parts, openPOs, unpaidInvoices, alerts, myOrdersToday, myOpenQuotes] = await Promise.all([
+  const [pendingApprovals, dispatchQueue, parts, openPOs, unpaidInvoices, alertsRaw, myOrdersToday, myOpenQuotes] = await Promise.all([
 
-    prisma.approval.count({ where: { status: "PENDING" } }),
+    canModule(user, "approvals") ? prisma.approval.count({ where: { status: "PENDING" } }) : 0,
 
-    prisma.order.count({
+    canModule(user, "dispatch")
+      ? prisma.order.count({ where: { status: { in: ["PICKING", "PICKED", "DISPATCHED", "CONFIRMED"] } } })
+      : 0,
 
-      where: { status: { in: ["PICKING", "PICKED", "DISPATCHED", "CONFIRMED"] } },
+    canModule(user, "inventory") ? prisma.part.findMany({ select: { qtyOnHand: true, reorderLevel: true } }) : [],
 
-    }),
+    canModule(user, "procurement")
+      ? prisma.purchaseOrder.count({ where: { status: { in: ["DRAFT", "ORDERED", "PARTIAL"] } } })
+      : 0,
 
-    prisma.part.findMany({ select: { qtyOnHand: true, reorderLevel: true } }),
-
-    prisma.purchaseOrder.count({ where: { status: { in: ["DRAFT", "ORDERED", "PARTIAL"] } } }),
-
-    prisma.invoice.count(),
+    canModule(user, "finance") ? prisma.invoice.count() : 0,
 
     fetchDashboardAlerts(),
 
-    prisma.order.count({ where: { ...own, createdAt: { gte: start }, status: { not: "CANCELLED" } } }),
+    canModule(user, "sales")
+      ? prisma.order.count({ where: { ...own, createdAt: { gte: start }, status: { not: "CANCELLED" } } })
+      : 0,
 
-    prisma.order.count({ where: { ...own, status: "DRAFT" } }),
+    canModule(user, "sales") ? prisma.order.count({ where: { ...own, status: "DRAFT" } }) : 0,
 
   ]);
+
+  const alerts = filterAlertsForUser(user, alertsRaw);
 
   const lowStock = parts.filter((p) => p.qtyOnHand <= p.reorderLevel).length;
 
@@ -242,9 +282,11 @@ function searchTerms(message: string) {
 
 
 
-export async function searchLiveContext(user: { id: string; role: string }, message: string): Promise<LiveSearch> {
+export async function searchLiveContext(user: { id: string; role: string; modules?: string | null }, message: string): Promise<LiveSearch> {
 
   const empty: LiveSearch = { customers: [], parts: [], orders: [] };
+
+  if (wantsSalesPerformance(message)) return empty;
 
   if (isWorkflowQuestion(message) && !wantsCustomerList(message) && !isPersonLookup(message)) return empty;
 
@@ -270,15 +312,18 @@ export async function searchLiveContext(user: { id: string; role: string }, mess
 
   const salesperson = await matchSalespersonHint(custTerms.length ? custTerms : terms);
 
-  const customers = listMode
-    ? await listAllCustomers(50)
-    : await searchCustomers(custTerms.length ? custTerms : terms, 8);
+  const customers =
+    canModule(user, "customers") && (listMode || custTerms.length)
+      ? listMode
+        ? await listAllCustomers(50)
+        : await searchCustomers(custTerms.length ? custTerms : terms, 8)
+      : [];
 
 
 
   const [parts, orders] = await Promise.all([
 
-    terms.length
+    terms.length && canModule(user, "inventory")
       ? prisma.part.findMany({
 
           where: { OR: orStrings(["name", "sku", "oemNumber"]) },
@@ -292,7 +337,7 @@ export async function searchLiveContext(user: { id: string; role: string }, mess
         })
       : Promise.resolve([]),
 
-    terms.length
+    terms.length && canModule(user, "sales")
       ? prisma.order.findMany({
 
           where: {
@@ -404,17 +449,31 @@ function formatLiveSearch(live: LiveSearch): string | null {
 
 
 
-function ruleBasedReply(message: string, snap: ErpSnapshot, live: LiveSearch): string | null {
+type AssistantUser = { id: string; name: string; role: string; modules?: string | null };
+
+function ruleBasedReply(message: string, snap: ErpSnapshot, live: LiveSearch, user: AssistantUser): string | null {
 
   const q = message.toLowerCase().trim();
 
   if (!q) return null;
 
+  const gate =
+    (/\b(invoice|receivable|payment|mpesa|collect|void)\b/.test(q) ? moduleDenied(user, "finance") : null) ||
+    (/\b(payroll|leave|employee|salary)\b/.test(q) ? moduleDenied(user, "hr") : null) ||
+    (/\b(stock|inventory|reorder|sku|part)\b/.test(q) && !/\b(partial|part payment)\b/.test(q) ? moduleDenied(user, "inventory") : null) ||
+    (/\b(dispatch|ship|pick|warehouse)\b/.test(q) ? moduleDenied(user, "dispatch") : null) ||
+    (/\b(approv)\b/.test(q) ? moduleDenied(user, "approvals") : null) ||
+    (/\b(po|purchase|procurement|vendor bill|grn)\b/.test(q) ? moduleDenied(user, "procurement") : null);
+
+  if (gate) return gate;
 
 
-  if (/^(hi|hello|hey)\b/.test(q)) {
 
-    return `Hello ${snap.user.name.split(" ")[0]}. I can look up a customer, an order, or stock, and walk you through the next step.`;
+  if (isGreeting(q)) return greetingReply(snap, user);
+
+  if (/^(thanks|thank you|cheers|asante)\b/.test(q)) {
+
+    return `You're welcome, ${snap.user.name.split(" ")[0]}. Ask anytime.`;
 
   }
 
@@ -553,23 +612,21 @@ function ruleBasedReply(message: string, snap: ErpSnapshot, live: LiveSearch): s
 
     const k = snap.kpis;
 
-    const lines = [
+    const lines: string[] = [];
 
-      `**${k.pendingApprovals}** approval(s) waiting — [Approvals](/approvals)`,
+    if (canModule(user, "approvals")) lines.push(`**${k.pendingApprovals}** approval(s) waiting — [Approvals](/approvals)`);
 
-      `**${k.dispatchQueue}** in dispatch — [Dispatch](/dispatch)`,
+    if (canModule(user, "dispatch")) lines.push(`**${k.dispatchQueue}** in dispatch — [Dispatch](/dispatch)`);
 
-      `**${k.lowStock}** low-stock item(s) — [Inventory](/inventory?section=reorder)`,
+    if (canModule(user, "inventory")) lines.push(`**${k.lowStock}** low-stock item(s) — [Inventory](/inventory?section=reorder)`);
 
-      `**${k.unpaidInvoices}** unpaid invoice(s) — [Finance](/finance)`,
+    if (canModule(user, "finance")) lines.push(`**${k.unpaidInvoices}** unpaid invoice(s) — [Finance](/finance)`);
 
-      `**${k.myOpenQuotes}** open quote(s) · **${k.myOrdersToday}** order(s) today — [Sales](/sales)`,
-
-    ];
+    if (canModule(user, "sales")) lines.push(`**${k.myOpenQuotes}** open quote(s) · **${k.myOrdersToday}** order(s) today — [Sales](/sales)`);
 
     if (snap.alerts.length) lines.push(...snap.alerts.map((a) => `• ${a.title}`));
 
-    return lines.join("\n");
+    return lines.length ? lines.join("\n") : "Nothing urgent in the modules you can access.";
 
   }
 
@@ -627,6 +684,8 @@ async function openAiReply(
 
   model: string,
 
+  user: AssistantUser,
+
   snap: ErpSnapshot,
 
   live: LiveSearch,
@@ -653,7 +712,9 @@ async function openAiReply(
 
     "Partial payments are allowed in Finance → Record payment. Voiding a payment reverses the receipt.",
 
-    "If the user lacks access to a module, say so and suggest their admin.",
+    "CRITICAL: Only use data from modules the user can access. If a topic belongs to a module they do not have, refuse briefly and point to their administrator — do not guess counts or names.",
+
+    `User may access: ${moduleListForPrompt(user)}`,
 
     `User modules: ${moduleLabels || snap.user.role}`,
 
@@ -719,33 +780,39 @@ async function openAiReply(
 
 
 
-function offlineFallback(message: string, snap: ErpSnapshot, live: LiveSearch, hasOpenAi: boolean): string {
+function offlineFallback(snap: ErpSnapshot, user: AssistantUser): string {
 
-  const rule = ruleBasedReply(message, snap, live);
-
-  if (rule) return rule;
+  const first = snap.user.name.split(" ")[0];
 
   const k = snap.kpis;
 
-  const picture = [
+  const now: string[] = [];
 
-    hasOpenAi ? "I couldn’t reach the model just now. Here is what I can see:" : "Here is what I can see:",
+  if (canModule(user, "approvals")) now.push(`${k.pendingApprovals} approvals`);
 
-    `• ${k.pendingApprovals} approvals waiting`,
+  if (canModule(user, "dispatch")) now.push(`${k.dispatchQueue} dispatch`);
 
-    `• ${k.dispatchQueue} in dispatch`,
+  if (canModule(user, "finance")) now.push(`${k.unpaidInvoices} unpaid invoices`);
 
-    `• ${k.lowStock} low-stock items`,
+  if (canModule(user, "sales")) now.push(`${k.myOpenQuotes} open quotes`);
 
-    `• ${k.unpaidInvoices} unpaid invoices`,
+  return [
 
-    `• ${k.myOpenQuotes} open quotes · ${k.myOrdersToday} orders today`,
+    `I’m not sure how to answer that yet, ${first}.`,
 
-    "Name a customer, order number, or SKU, or ask how to record a payment.",
+    "Try a **customer name**, **order number**, or **SKU**, or ask:",
 
-  ];
+    "• What needs attention?",
 
-  return picture.join("\n");
+    "• Best salesperson this month (managers)",
+
+    "• How do I record a part payment?",
+
+  ]
+
+    .concat(now.length ? ["", `Now (${userModules(user).join(", ")}): ${now.join(" · ")}.`] : [])
+
+    .join("\n");
 
 }
 
@@ -789,13 +856,29 @@ export async function assistantChat(user: { id: string; name: string; role: stri
 
 
 
-  const guided = ruleBasedReply(trimmed, snap, live);
+  const performance = await replySalesPerformance(user, trimmed);
 
-  if (guided && shouldUseGuidedReply(trimmed)) {
+  if (performance) {
 
-    reply = guided;
+    reply = performance;
 
     mode = "local";
+
+  }
+
+
+
+  if (!reply) {
+
+    const ruled = ruleBasedReply(trimmed, snap, live, user);
+
+    if (ruled) {
+
+      reply = ruled;
+
+      mode = "local";
+
+    }
 
   }
 
@@ -820,6 +903,8 @@ export async function assistantChat(user: { id: string; name: string; role: stri
         apiKey,
 
         model,
+
+        user,
 
         snap,
 
@@ -851,7 +936,7 @@ export async function assistantChat(user: { id: string; name: string; role: stri
 
   if (!reply) {
 
-    reply = offlineFallback(trimmed, snap, live, Boolean(apiKey));
+    reply = offlineFallback(snap, user);
 
   }
 
