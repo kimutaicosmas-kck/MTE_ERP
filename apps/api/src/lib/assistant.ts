@@ -6,19 +6,20 @@ import { fetchDashboardAlerts } from "./dashboardAlerts.js";
 
 import { ownOrderWhere } from "./roles.js";
 
-import { canModule, MODULES, userModules } from "./access.js";
+import { canModule, userModules } from "./access.js";
 
 import {
   filterAlertsForUser,
   isWorkflowQuestion,
   moduleDenied,
-  moduleListForPrompt,
   replySalesPerformance,
   replyStockDetail,
   wantsSalesPerformance,
   wantsStockDetail,
   workflowAssistantReply,
 } from "./assistant-knowledge.js";
+
+import { mteCapabilitiesReply, replyMteKnowledge } from "./assistant-mte.js";
 
 import {
   customerSearchTerms,
@@ -73,28 +74,6 @@ type LiveSearch = {
   listMode?: boolean;
 
 };
-
-
-
-const ERP_ROUTES = [
-
-  "Dashboard /",
-
-  "Sales /sales · New order /sales/new · Performance /sales/performance",
-
-  "Dispatch /dispatch",
-
-  "Inventory /inventory · Warehouses /inventory?section=warehouses",
-
-  "Procurement /procurement · New PO /procurement/new",
-
-  "Customers /customers · Vendors /vendors",
-
-  "Finance /finance · Approvals /approvals · Audit /audit",
-
-  "HR /hr · Reports /reports · Settings /settings",
-
-];
 
 
 
@@ -660,141 +639,17 @@ function ruleBasedReply(message: string, snap: ErpSnapshot, live: LiveSearch, us
 
 
 
-async function openAiReply(
-
-  apiKey: string,
-
-  model: string,
-
-  user: AssistantUser,
-
-  snap: ErpSnapshot,
-
-  live: LiveSearch,
-
-  message: string,
-
-  history: { role: string; content: string }[],
-
-) {
-
-  const moduleLabels = MODULES.filter((m) => snap.user.modules.includes(m.id)).map((m) => m.label).join(", ");
-
-  const system = [
-
-    "You are the MTE ERP assistant for James Mte Kenya Ltd — earth-moving parts resale (shop, field sales, dispatch, finance, HR).",
-
-    "Answer ANY user question: how to complete a task, where a screen is, what a metric means, process/policy, troubleshooting, or interpreting their live data.",
-
-    "Use markdown. Link to in-app routes as [Label](/path). Never invent counts — use snapshot and searchResults JSON only.",
-
-    "Currency: KES. Be concise. Short paragraphs. No filler.",
-
-    "Import cost: a product has one import cost. Importing the same product again replaces that cost and does not add quantity. Staff set the selling price after goods land.",
-
-    "Partial payments are allowed in Finance → Record payment. Voiding a payment reverses the receipt.",
-
-    "CRITICAL: Only use data from modules the user can access. If a topic belongs to a module they do not have, refuse briefly and point to their administrator — do not guess counts or names.",
-
-    `User may access: ${moduleListForPrompt(user)}`,
-
-    `User modules: ${moduleLabels || snap.user.role}`,
-
-    `App routes:\n${ERP_ROUTES.join("\n")}`,
-
-    `Live snapshot: ${JSON.stringify(snap)}`,
-
-    `Search results (may be empty): ${JSON.stringify(live)}`,
-
-    "If the user asks how to do something, explain the workflow. Ignore salespersonHint unless they asked about a person by name.",
-
-  ].join("\n\n");
-
-
-
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-
-    method: "POST",
-
-    headers: {
-
-      Authorization: `Bearer ${apiKey}`,
-
-      "Content-Type": "application/json",
-
-    },
-
-    body: JSON.stringify({
-
-      model,
-
-      temperature: 0.45,
-
-      max_tokens: 1200,
-
-      messages: [
-
-        { role: "system", content: system },
-
-        ...history.slice(-14).map((h) => ({ role: h.role, content: h.content })),
-
-        { role: "user", content: message },
-
-      ],
-
-    }),
-
-  });
-
-  if (!res.ok) {
-
-    const err = await res.text();
-
-    throw new Error(err.slice(0, 200) || "OpenAI request failed");
-
-  }
-
-  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-
-  return String(data.choices?.[0]?.message?.content || "").trim();
-
-}
-
-
-
 function offlineFallback(snap: ErpSnapshot, user: AssistantUser): string {
 
   const first = snap.user.name.split(" ")[0];
 
-  const k = snap.kpis;
-
-  const now: string[] = [];
-
-  if (canModule(user, "approvals")) now.push(`${k.pendingApprovals} approvals`);
-
-  if (canModule(user, "dispatch")) now.push(`${k.dispatchQueue} dispatch`);
-
-  if (canModule(user, "finance")) now.push(`${k.unpaidInvoices} unpaid invoices`);
-
-  if (canModule(user, "sales")) now.push(`${k.myOpenQuotes} open quotes`);
-
   return [
 
-    `I’m not sure how to answer that yet, ${first}.`,
+    `I didn’t match that yet, ${first}.`,
 
-    "Try a **customer name**, **order number**, or **SKU**, or ask:",
+    mteCapabilitiesReply(user),
 
-    "• What needs attention?",
-
-    "• Best salesperson this month (managers)",
-
-    "• How do I record a part payment?",
-
-  ]
-
-    .concat(now.length ? ["", `Now (${userModules(user).join(", ")}): ${now.join(" · ")}.`] : [])
-
-    .join("\n");
+  ].join("\n\n");
 
 }
 
@@ -806,7 +661,7 @@ export async function assistantChat(user: { id: string; name: string; role: stri
 
   if (setting.assistantEnabled === false) {
 
-    return { reply: "The AI assistant is disabled in company settings.", mode: "disabled" as const };
+    return { reply: "The MTE assistant is disabled in company settings.", mode: "disabled" as const };
 
   }
 
@@ -826,15 +681,9 @@ export async function assistantChat(user: { id: string; name: string; role: stri
 
 
 
-  const apiKey = setting.openaiApiKey?.trim() || process.env.OPENAI_API_KEY?.trim();
-
-  const model = setting.openaiModel || process.env.OPENAI_MODEL || "gpt-4o-mini";
-
-
-
   let reply: string | null = null;
 
-  let mode: "local" | "openai" = "local";
+  let mode: "local" = "local";
 
 
 
@@ -890,57 +739,19 @@ export async function assistantChat(user: { id: string; name: string; role: stri
 
   }
 
+  if (!reply) {
 
+    const mte = await replyMteKnowledge(user, trimmed, snap, live);
 
-  if (!reply && apiKey) {
+    if (mte) {
 
-    try {
+      reply = mte;
 
-      const history = await prisma.assistantTurn.findMany({
-
-        where: { userId: user.id },
-
-        orderBy: { createdAt: "desc" },
-
-        take: 16,
-
-      });
-
-      const ai = await openAiReply(
-
-        apiKey,
-
-        model,
-
-        user,
-
-        snap,
-
-        live,
-
-        trimmed,
-
-        history.reverse().map((h) => ({ role: h.role === "assistant" ? "assistant" : "user", content: h.content })),
-
-      );
-
-      if (ai) {
-
-        reply = ai;
-
-        mode = "openai";
-
-      }
-
-    } catch {
-
-      /* fall back */
+      mode = "local";
 
     }
 
   }
-
-
 
   if (!reply) {
 

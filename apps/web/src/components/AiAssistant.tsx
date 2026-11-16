@@ -16,8 +16,8 @@ type AssistantCtx = {
 const STARTERS = [
   "What needs attention?",
   "Who is the top salesperson this month?",
-  "How do I record a part payment?",
-  "Same product imported at a new cost",
+  "Which products are out of stock?",
+  "How do I create a PO?",
 ];
 
 const AssistantContext = createContext<AssistantCtx | null>(null);
@@ -120,7 +120,7 @@ export function AiAssistantPanel({ compact, onClose }: { compact?: boolean; onCl
           <span className="assistant-icon-ring">
             <Sparkles size={15} />
           </span>
-          <div className="text-sm font-semibold text-ink dark:text-white">Assistant</div>
+          <div className="text-sm font-semibold text-ink dark:text-white">MTE assistant</div>
         </div>
         <div className="assistant-head-actions">
           <button type="button" className="assistant-icon-btn" aria-label="Clear chat" onClick={() => clear.mutate()} disabled={clear.isPending || !turns.length}>
@@ -136,8 +136,8 @@ export function AiAssistantPanel({ compact, onClose }: { compact?: boolean; onCl
       <div ref={scroll} className="assistant-panel-body">
         {visible.length === 0 && !chat.isPending && (
           <div className="assistant-empty">
-            <h3>How can I help?</h3>
-            <p>Ask about a customer, an order, stock, or the next step.</p>
+            <h3>MTE assistant</h3>
+            <p>Ask anything about your work in MTE — steps, live numbers, customers, SKUs.</p>
             <div className="assistant-suggestions">
               {STARTERS.map((s) => (
                 <button key={s} type="button" className="assistant-chip" onClick={() => send(s)}>
@@ -177,7 +177,7 @@ export function AiAssistantPanel({ compact, onClose }: { compact?: boolean; onCl
               send();
             }
           }}
-          placeholder="Ask anything"
+          placeholder="Ask about MTE ERP…"
           aria-label="Message assistant"
         />
         <button type="submit" className="assistant-send" disabled={chat.isPending || !input.trim()} aria-label="Send">

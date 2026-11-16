@@ -268,8 +268,6 @@ function IntegrationsSettings() {
         method: "PATCH",
         body: JSON.stringify({
           assistantEnabled: current.assistantEnabled,
-          openaiModel: current.openaiModel,
-          openaiApiKey: current.openaiApiKey,
         }),
       }),
     onSuccess: () => {
@@ -285,21 +283,12 @@ function IntegrationsSettings() {
   return (
     <div className="space-y-4">
       <div className="card space-y-3">
-        <h2 className="font-semibold">AI assistant</h2>
+        <h2 className="font-semibold">MTE assistant</h2>
+        <p className="text-sm text-stone-600">Uses live ERP data and built-in MTE workflows only. Answers respect each user&apos;s module access.</p>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={current.assistantEnabled !== false} onChange={(e) => set("assistantEnabled", e.target.checked)} />
           Enable in-app assistant for all users
         </label>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div>
-            <label>OpenAI model</label>
-            <input value={current.openaiModel || "gpt-4o-mini"} onChange={(e) => set("openaiModel", e.target.value)} />
-          </div>
-          <div>
-            <label>API key {current.openaiKeySet ? "· saved" : ""}</label>
-            <input type="password" autoComplete="off" value={current.openaiApiKey || ""} onChange={(e) => set("openaiApiKey", e.target.value)} placeholder={current.openaiKeySet ? "Leave blank to keep" : "Optional — local answers work without key"} />
-          </div>
-        </div>
         {save.error && <p className="text-sm text-red-600">{(save.error as Error).message}</p>}
         <div className="flex justify-end">
           <button className="btn-gold" disabled={save.isPending} onClick={() => save.mutate()}>Save</button>

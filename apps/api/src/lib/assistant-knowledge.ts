@@ -1,7 +1,7 @@
 import { prisma } from "./prisma.js";
 import { canModule, MODULES, userModules } from "./access.js";
 
-type AssistantUser = { id: string; name: string; role: string; modules?: string | null };
+export type AssistantUser = { id: string; name: string; role: string; modules?: string | null };
 
 export function moduleDenied(user: AssistantUser, moduleId: string, label?: string): string | null {
   if (canModule(user, moduleId)) return null;
